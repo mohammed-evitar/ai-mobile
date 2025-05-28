@@ -1,0 +1,17 @@
+export const borderAndBgcolors = [
+  {bg: '#E740401A', border: '#E74040'},
+  {bg: '#FB85001A', border: '#FB8500'},
+  {bg: '#22BBA91A', border: '#22BBA9'},
+  {bg: '#F985971A', border: '#F98597'},
+  {bg: '#70BEFB1A', border: '#70BEFB'},
+  {bg: '#FB85001A', border: '#FB8500'},
+  {bg: '#38B0001A', border: '#38B000'},
+  {bg: '#E740401A', border: '#E74040'},
+  {bg: '#70BEFB1A', border: '#70BEFB'},
+  {bg: '#F985971A', border: '#F98597'},
+  {bg: '#22BBA91A', border: '#22BBA9'},
+  {bg: '#70BEFB1A', border: '#70BEFB'},
+  {bg: '#9A8C981A', border: '#9A8C98'},
+  {bg: '#38B0001A', border: '#38B000'},
+  {bg: '#E740401A', border: '#E74040'},
+];
