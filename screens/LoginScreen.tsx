@@ -82,7 +82,7 @@ export default function LoginScreen() {
       {isLoading && (
         <View
           style={tw`absolute inset-0 bg-black/50 items-center justify-center z-50`}>
-          <ActivityIndicator size="large" color="#fff" />
+          <ActivityIndicator size="large" color="#947EFB" />
           <Text style={[tw`text-white mt-4`, {fontFamily: fonts.Inter.medium}]}>
             Just a moment... Signing you in...
           </Text>

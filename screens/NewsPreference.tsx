@@ -24,9 +24,10 @@ const NewsPreference = () => {
   const {user} = route.params;
 
   const handleTalkWithAIClick = () => {
-    // Navigate to talk with AI screen
-    // navigation.navigate('TalkWithAI');
-    console.log('Navigate to Talk with AI');
+    navigation.navigate('TalkWithAI', {
+      firstName: user?.firstName,
+      email: user?.email,
+    });
   };
 
   const handleManualSelection = () => {
