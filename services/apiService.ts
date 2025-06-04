@@ -28,7 +28,6 @@ class ApiService {
     this.axiosInstance = axios.create({
       baseURL: API_BASE_URL, // Set your API base URL
       headers: {
-        'Content-Type': 'application/json',
         'x-client-time': this.getFormattedDate(), // Add client date header
         'x-is-mobile': 'true', // Custom header to indicate source
         'x-app-version': '1.0.0', // Custom header for app version

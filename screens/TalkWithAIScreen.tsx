@@ -14,7 +14,12 @@ import {
   Alert,
   Modal,
 } from 'react-native';
-import {useNavigation, useRoute, RouteProp} from '@react-navigation/native';
+import {
+  useNavigation,
+  useRoute,
+  RouteProp,
+  useFocusEffect,
+} from '@react-navigation/native';
 import TrackPlayer, {
   useTrackPlayerEvents,
   Event,
@@ -26,6 +31,7 @@ import apiService from '../services/apiService';
 import type {RootStackParamList} from '../App';
 import {fonts} from '../utils/fonts';
 import AudioRecorderPlayer from 'react-native-audio-recorder-player';
+import RNFS from 'react-native-fs';
 
 type Step =
   | 'intro'
@@ -141,6 +147,19 @@ const MicPulse = () => {
       pointerEvents="none"
     />
   );
+};
+
+const getUniqueRecordingPath = () => {
+  const timestamp = Date.now();
+  let dir, ext;
+  if (Platform.OS === 'ios') {
+    dir = RNFS.CachesDirectoryPath;
+    ext = 'm4a';
+  } else {
+    dir = RNFS.ExternalCachesDirectoryPath;
+    ext = 'm4a';
+  }
+  return `${dir}/sound-${timestamp}.${ext}`;
 };
 
 const TalkWithAIScreen: React.FC = () => {
@@ -314,6 +333,12 @@ const TalkWithAIScreen: React.FC = () => {
       console.log('Recording started at:', result);
     } catch (error) {
       console.error('Error starting recording:', error);
+      setIsRecording(false);
+      Alert.alert(
+        'Recording Error',
+        'Failed to start recording. Please try again.',
+        [{text: 'OK'}],
+      );
     }
   };
 
@@ -324,13 +349,24 @@ const TalkWithAIScreen: React.FC = () => {
       setIsRecording(false);
       setRecordedAudioUri(result);
       console.log('Recording stopped. File saved at:', result);
+
+      const uniquePath = getUniqueRecordingPath();
+      await RNFS.copyFile(result, uniquePath);
+      console.log('Copied recording to unique path:', uniquePath);
+
       if (step === 'recording1') {
-        setRecording1Uri(result);
+        setRecording1Uri(uniquePath);
       } else if (step === 'recording2') {
-        setRecording2Uri(result);
+        setRecording2Uri(uniquePath);
       }
     } catch (error) {
       console.error('Error stopping recording:', error);
+      setIsRecording(false);
+      Alert.alert(
+        'Recording Error',
+        'Failed to save recording. Please try again.',
+        [{text: 'OK', onPress: () => resetRecording()}],
+      );
     }
   };
 
@@ -371,6 +407,7 @@ const TalkWithAIScreen: React.FC = () => {
       await playAudio(
         'https://d279zq803tcyfh.cloudfront.net/onboarding/841bbc74-247e-4326-a78c-062655261731.mp3',
       );
+
       setStep('recording2');
       setRecordedAudioUri('');
     } else if (step === 'recording2') {
@@ -381,57 +418,57 @@ const TalkWithAIScreen: React.FC = () => {
         'Boom! your personal news hub is ready. Just sit back, listen and let us bring you the stories you care about.',
       );
       setRecordedAudioUri('');
-      await playAudio(
-        'https://d279zq803tcyfh.cloudfront.net/onboarding/9db772b6-77e7-42d5-aa14-4f0f09fb3bc0.mp3',
-      );
+      sendTranscripts();
+      // Optionally play outro audio here
       setStep('recording2Submitted');
     }
     setIsLoading(false);
   };
 
-  useEffect(() => {
-    if (
-      !isAudioPlaying &&
-      step === 'recording2Submitted' &&
-      transcript1 &&
-      transcript2
-    ) {
-      sendTranscripts(transcript1, transcript2);
-    }
-  }, [transcript1, transcript2, step, isAudioPlaying]);
-
-  const sendTranscripts = async (t1: string, t2: string) => {
+  const sendTranscripts = async () => {
     try {
-      console.log(
-        'Sending transcripts...',
-        JSON.stringify({
-          transcript1: t1,
-          transcript2: t2,
-          email: email,
-          recording1Uri,
-          recording2Uri,
-        }),
-      );
+      // Check if we have both recordings
+      if (!recording1Uri) {
+        console.error('Missing recording1 URI');
+        throw new Error('First recording is missing');
+      }
+      if (!recording2Uri) {
+        console.error('Missing recording2 URI');
+        throw new Error('Second recording is missing');
+      }
+      const formData = new FormData();
+      // Use .m4a and audio/m4a for both platforms
+      formData.append('audio1', {
+        uri: recording1Uri,
+        type: 'audio/m4a',
+        name: 'audio1.m4a',
+      } as any);
 
-      const response = await apiService.performApiCall({
-        method: 'POST',
-        url: '/transcribe',
-        data: {
-          transcript1: t1,
-          transcript2: t2,
-          email: email,
-          recording1Uri,
-          recording2Uri,
-        },
+      formData.append('audio2', {
+        uri: recording2Uri,
+        type: 'audio/m4a',
+        name: 'audio2.m4a',
+      } as any);
+
+      formData.append('email', email);
+
+      console.log('Sending form data with files:', {
+        audio1: recording1Uri ? 'present' : 'missing',
+        audio2: recording2Uri ? 'present' : 'missing',
+        email,
       });
 
+      const result = await apiService.post('/transcribe', formData);
       await TrackPlayer.stop();
-      console.log('Transcripts sent successfully:', response);
-      setTimeout(() => {
-        navigation.navigate('Home' as never);
-      }, 200);
+      console.log('Transcripts sent successfully:', result);
+      navigation.navigate('Home' as never);
     } catch (err) {
       console.error('Error sending transcripts:', err);
+      Alert.alert(
+        'Error',
+        'There was a problem sending your recordings. Please try again.',
+        [{text: 'OK', onPress: () => resetRecording()}],
+      );
     }
   };
 
@@ -507,6 +544,27 @@ const TalkWithAIScreen: React.FC = () => {
       if (interval) clearInterval(interval);
     };
   }, [step]);
+
+  useFocusEffect(
+    React.useCallback(() => {
+      // On focus: do nothing
+      return () => {
+        // On blur/unmount: reset onboarding state
+        setStep('intro');
+        setTranscript1(null);
+        setTranscript2(null);
+        setOnboardingIntro('');
+        setDisplayText('');
+        setIsRecording(false);
+        setRecordedAudioUri('');
+        setIsLoadingIntroAudio(false);
+        setRecording1Uri(null);
+        setRecording2Uri(null);
+        // Stop any audio playback
+        TrackPlayer.stop();
+      };
+    }, []),
+  );
 
   return (
     <View style={styles.container}>
