@@ -36,16 +36,16 @@ interface HomeScreenProps {
 }
 
 // Dummy data
-const dummyCategories = [
-  'Politics',
-  'Technology',
-  'Sports',
-  'Health',
-  'Science',
-  'Entertainment',
-  'Business',
-  'World News',
-];
+// const dummyCategories = [
+//   'Politics',
+//   'Technology',
+//   'Sports',
+//   'Health',
+//   'Science',
+//   'Entertainment',
+//   'Business',
+//   'World News',
+// ];
 
 const dummyRecentNews = [
   {
@@ -123,6 +123,30 @@ const HomeScreen = ({user}: HomeScreenProps) => {
 
   // Use user data from HOC
   console.log('Authenticated user:', user);
+
+  // Get user's selected categories/interests
+  const getUserCategories = () => {
+    if (!user?.newsPreferences) return [];
+
+    // Handle different possible data structures
+    if (Array.isArray(user.newsPreferences)) {
+      return user.newsPreferences;
+    }
+
+    if (typeof user.newsPreferences === 'object') {
+      // If it's an object, get the keys (category names)
+      const categories = Object.keys(user.newsPreferences);
+      // Filter out any categories that might be set to false
+      return categories.filter(
+        category => user.newsPreferences[category] !== false,
+      );
+    }
+
+    return [];
+  };
+
+  const userCategories = getUserCategories();
+  console.log('User categories:', userCategories);
 
   const recentCategoryCount = useRef<{[key: string]: number}>({});
   const trendingCategoryCount = useRef<{[key: string]: number}>({});
@@ -338,14 +362,41 @@ const HomeScreen = ({user}: HomeScreenProps) => {
         <Text style={tw`text-white text-base font-semibold ml-5 mt-2 mb-3`}>
           Your Interests 🔥
         </Text>
-        <FlatList
-          data={dummyCategories}
-          renderItem={renderCategoryItem}
-          keyExtractor={(item, index) => index.toString()}
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={tw`pl-5 pr-5 gap-3`}
-        />
+        {userCategories.length > 0 ? (
+          <FlatList
+            data={userCategories}
+            renderItem={renderCategoryItem}
+            keyExtractor={(item, index) => index.toString()}
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={tw`pl-5 pr-5 gap-3`}
+          />
+        ) : (
+          <View style={tw`mx-5 mb-4`}>
+            <View
+              style={[
+                tw`rounded-xl p-4 border border-gray-600`,
+                {backgroundColor: 'rgba(255, 255, 255, 0.1)'},
+              ]}>
+              <Text style={tw`text-white text-sm mb-2`}>
+                No interests selected yet
+              </Text>
+              <Text style={tw`text-gray-400 text-xs mb-3`}>
+                Select your news preferences to get personalized content
+              </Text>
+              <TouchableOpacity
+                onPress={() => navigation.navigate('NewsPreference')}
+                style={[
+                  tw`px-4 py-2 rounded-lg`,
+                  {backgroundColor: '#947EFB'},
+                ]}>
+                <Text style={tw`text-white text-xs font-semibold text-center`}>
+                  Choose Interests
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
 
         {/* Recent News Section */}
         <View style={tw`mt-5`}>
