@@ -1,4 +1,4 @@
-import React, {useRef, useState} from 'react';
+import React, {useRef, useState, useEffect, useCallback, useMemo} from 'react';
 import {
   View,
   Text,
@@ -19,6 +19,7 @@ import {fonts} from '../utils/fonts';
 import withAuthCheck from '../utils/withAuthCheck';
 import moment from 'moment';
 import {imageMap} from '../utils/imageMap';
+import BottomAudioPlayer from '../components/BottomAudioPlayer';
 
 type RootStackParamList = {
   Home: undefined;
@@ -91,94 +92,58 @@ const HomeScreen = ({user}: HomeScreenProps) => {
   const [isPlaying, setIsPlaying] = useState(false);
   const [curNewsID, setCurNewsID] = useState<string | null>(null);
   const [trialDaysLeft] = useState(7);
-
-  // Recent News API integration
+  const [showAudioPlayer, setShowAudioPlayer] = useState(false);
   const [recentNews, setRecentNews] = useState<any[]>([]);
   const [isLoadingRecentNews, setIsLoadingRecentNews] = useState(false);
+  const [trendingNews, setTrendingNews] = useState<any[]>([]);
+  const [isLoadingTrendingNews, setIsLoadingTrendingNews] = useState(false);
 
-  // Subscription data - you may want to get this from user object or separate API
-  const subscriptionData = {
-    isSubscriptionExpired: false, // This should come from your subscription logic
-  };
+  const recentCategoryCount = useRef<{[key: string]: number}>({});
+  const trendingCategoryCount = useRef<{[key: string]: number}>({});
+  const imagesRef = useRef<{[key: string]: string}>({});
 
-  // Use user data from HOC
-  console.log('Authenticated user:', user);
-
-  // Get user's selected categories/interests
-  const getUserCategories = () => {
+  // Memoize user categories and preferences
+  const userCategories = useMemo(() => {
     if (!user?.newsPreferences) return [];
 
-    // Handle different possible data structures
     if (Array.isArray(user.newsPreferences)) {
       return user.newsPreferences;
     }
 
     if (typeof user.newsPreferences === 'object') {
-      // If it's an object, get the keys (category names)
       const categories = Object.keys(user.newsPreferences);
-      // Filter out any categories that might be set to false
       return categories.filter(
         category => user.newsPreferences[category] !== false,
       );
     }
 
     return [];
-  };
+  }, [user?.newsPreferences]);
 
-  // Get flattened subcategories for API calls
-  const getFlattenedPreferences = () => {
+  const flattenedPreferences = useMemo(() => {
     if (!user?.newsPreferences) return [];
 
-    // Handle different possible data structures
     if (Array.isArray(user.newsPreferences)) {
       return user.newsPreferences;
     }
 
     if (typeof user.newsPreferences === 'object') {
-      // Extract all values from the newsPreferences object and flatten them
       const allPreferences: string[] = [];
-
       Object.values(user.newsPreferences).forEach((value: any) => {
         if (Array.isArray(value)) {
-          // If value is an array, add all items
           allPreferences.push(...value);
         } else if (value && typeof value === 'string') {
-          // If value is a string, add it
           allPreferences.push(value);
         }
       });
-
       return allPreferences;
     }
 
     return [];
-  };
+  }, [user?.newsPreferences]);
 
-  const userCategories = getUserCategories(); // For display
-  const flattenedPreferences = getFlattenedPreferences(); // For API
-  console.log('User categories (for display):', userCategories);
-  console.log('Flattened preferences (for API):', flattenedPreferences);
-
-  const recentCategoryCount = useRef<{[key: string]: number}>({});
-  const trendingCategoryCount = useRef<{[key: string]: number}>({});
-  const imagesRef = useRef<{[key: string]: string}>({});
-
-  const [trendingNews, setTrendingNews] = useState<any[]>([]);
-  const [isLoadingTrendingNews, setIsLoadingTrendingNews] = useState(false);
-
-  React.useEffect(() => {
-    loadUserData();
-    // Call getRNews and getTNews when component mounts if user has categories
-    if (flattenedPreferences.length > 0) {
-      getRNews(flattenedPreferences);
-      getTNews(flattenedPreferences);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const loadUserData = async () => {
+  const loadUserData = useCallback(async () => {
     try {
-      // User data is already available from HOC, but keep existing logic for compatibility
       const userData = await AsyncStorage.getItem('user');
       if (userData) {
         console.log('Local user data loaded');
@@ -186,9 +151,9 @@ const HomeScreen = ({user}: HomeScreenProps) => {
     } catch (error) {
       console.error('Error loading user data:', error);
     }
-  };
+  }, []);
 
-  const handleLogout = async () => {
+  const handleLogout = useCallback(async () => {
     try {
       await apiService.clearToken();
       navigation.reset({
@@ -198,193 +163,211 @@ const HomeScreen = ({user}: HomeScreenProps) => {
     } catch (error) {
       console.error('Logout error:', error);
     }
-  };
+  }, [navigation]);
 
-  const handlePlayAudio = () => {
-    setIsPlaying(!isPlaying);
-  };
+  const handlePlayAudio = useCallback(() => {
+    if (!isPlaying) {
+      setShowAudioPlayer(true);
+      setIsPlaying(true);
+    } else {
+      setIsPlaying(false);
+      setShowAudioPlayer(false);
+    }
+  }, [isPlaying]);
 
-  const handlePlayAudio1 = (newsId: string) => {
+  const handlePlayAudio1 = useCallback((newsId: string) => {
     setCurNewsID(newsId);
-  };
+  }, []);
 
-  const renderCategoryItem = ({item}: {item: string}) => (
-    <TouchableOpacity
-      style={tw`bg-cardbg rounded-2xl px-4 py-2 border border-gray-600`}>
-      <Text style={tw`text-white text-sm font-medium`}>{item}</Text>
-    </TouchableOpacity>
+  const handleClosePlayer = useCallback(() => {
+    setShowAudioPlayer(false);
+    setIsPlaying(false);
+  }, []);
+
+  const renderCategoryItem = useCallback(
+    ({item}: {item: string}) => (
+      <TouchableOpacity
+        style={tw`bg-cardbg rounded-2xl px-4 py-2 border border-gray-600`}>
+        <Text style={tw`text-white text-sm font-medium`}>{item}</Text>
+      </TouchableOpacity>
+    ),
+    [],
+  );
+
+  const renderRecentNewsItem = useCallback(
+    ({item}: {item: any}) => {
+      let imageName = getImageName(recentCategoryCount.current, item.category);
+
+      if (!imagesRef.current[item._id]) {
+        imagesRef.current[item._id] = imageName;
+      }
+      imageName = imagesRef.current[item._id];
+
+      return (
+        <TouchableOpacity
+          style={[
+            tw`rounded-xl p-2.5 w-45 h-16 flex-row items-center gap-2`,
+            {backgroundColor: 'rgba(255, 255, 255, 0.1)'},
+          ]}
+          onPress={() => handlePlayAudio1(item._id)}>
+          <Image
+            source={imageMap[imageName]}
+            style={tw`w-12 h-12 rounded-md`}
+          />
+          <Text style={tw`text-white text-sm flex-1 leading-4`}>
+            {item.headline.length > 30
+              ? item.headline.substring(0, 30) + '..'
+              : item.headline}
+          </Text>
+        </TouchableOpacity>
+      );
+    },
+    [handlePlayAudio1],
+  );
+
+  const renderTrendingNewsItem = useCallback(
+    ({item, index}: {item: any; index: number}) => {
+      let imageName = getImageName(
+        trendingCategoryCount.current,
+        item.category,
+      );
+
+      if (!imagesRef.current[item._id]) {
+        imagesRef.current[item._id] = imageName;
+      }
+      imageName = imagesRef.current[item._id];
+
+      const isActive = item._id === curNewsID;
+
+      return (
+        <TouchableOpacity
+          style={[
+            tw`rounded-xl p-2.5 mx-5 my-1.5 h-18 flex-row items-center gap-2 relative`,
+            {
+              backgroundColor: isActive
+                ? '#6f70aa'
+                : 'rgba(255, 255, 255, 0.1)',
+            },
+          ]}
+          onPress={() => handlePlayAudio1(item._id)}>
+          {isActive && (
+            <View
+              style={[
+                tw`absolute -top-1 right-0 px-2 py-0.5 rounded-xl z-10`,
+                {backgroundColor: '#4C4AE3'},
+              ]}>
+              <Text style={tw`text-white text-xs font-bold`}>tell me more</Text>
+            </View>
+          )}
+          <Image
+            source={imageMap[imageName]}
+            style={tw`w-12 h-13 rounded-md`}
+          />
+          <View style={tw`flex-1`}>
+            <Text style={[tw`text-xs mb-0.5`, {color: '#947EFB'}]}>
+              #{index + 1}
+            </Text>
+            <Text style={tw`text-white text-sm font-medium`}>
+              {item.headline.length > 15
+                ? item.headline.substring(0, 15) + '..'
+                : item.headline}
+              <Text
+                style={[tw`font-normal`, {color: 'rgba(255, 255, 255, 0.5)'}]}>
+                {item.description.length > 38
+                  ? item.description.substring(0, 38) + '..'
+                  : item.description}
+              </Text>
+            </Text>
+          </View>
+        </TouchableOpacity>
+      );
+    },
+    [curNewsID, handlePlayAudio1],
   );
 
   // mapConvo function to process the news data
-  const mapConvo = (newsData: any[]) => {
-    // This function should process the conversation data
-    // You may need to adjust this based on your specific requirements
-    return newsData.map((item: any) => ({
-      ...item,
-      // Add any additional processing here
-    }));
-  };
+  const mapConvo = useCallback((convos: any) => {
+    return convos
+      .filter((n: any) => n?.conversation)
+      .map((n: any) => ({
+        ...n,
+        conversation: n?.conversation.map((c: any) => ({
+          ...c,
+          newsId: n._id,
+        })),
+      }));
+  }, []);
 
-  // Get Recent News function exactly as specified
-  const getRNews = async (newsPreferences: any) => {
-    if (subscriptionData?.isSubscriptionExpired) return;
+  useEffect(() => {
+    const getRNews = async (newsPreferences: any) => {
+      try {
+        setIsLoadingRecentNews(true);
+        const response: any = await apiService.get('user/recent-news', {
+          newsPreferences: newsPreferences.join(','),
+        });
 
-    try {
-      setIsLoadingRecentNews(true);
-      const unixTimestamp = moment.utc().unix();
-      console.log('Unix timestamp:', unixTimestamp);
-      console.log('Sending newsPreferences to API:', newsPreferences);
-      console.log(
-        'newsPreferences as comma-separated string:',
-        newsPreferences.join(','),
-      );
+        const filteredNews = response?.result.filter(
+          (n: any) =>
+            (n?.generateVoxDex && n?.conversation?.length) ||
+            !n?.generateVoxDex,
+        );
 
-      const response: any = await apiService.get('user/recent-news', {
-        newsPreferences: newsPreferences.join(','),
-      });
+        const sortedNews = [...filteredNews].sort((a, b) => {
+          const aHasVoxDex = a?.generateVoxDex && a?.conversation?.length;
+          const bHasVoxDex = b?.generateVoxDex && b?.conversation?.length;
 
-      console.log('API Response:', response); // Print response to console
+          if (aHasVoxDex && !bHasVoxDex) return -1;
+          if (!aHasVoxDex && bHasVoxDex) return 1;
+          return 0;
+        });
 
-      // First filter the news
-      const filteredNews = response?.result.filter(
-        (n: any) =>
-          (n?.generateVoxDex && n?.conversation?.length) || !n?.generateVoxDex,
-      );
+        setRecentNews(mapConvo(sortedNews));
+      } catch (error) {
+        console.error('Error fetching recent news:', error);
+        setRecentNews([]);
+      } finally {
+        setIsLoadingRecentNews(false);
+      }
+    };
 
-      // Then sort the filtered news to put items with generateVoxDex and conversation length at the top
-      const sortedNews = [...filteredNews].sort((a, b) => {
-        const aHasVoxDex = a?.generateVoxDex && a?.conversation?.length;
-        const bHasVoxDex = b?.generateVoxDex && b?.conversation?.length;
+    const getTNews = async (newsPreferences: any) => {
+      try {
+        setIsLoadingTrendingNews(true);
+        const response: any = await apiService.get('user/trending-news', {
+          newsPreferences: newsPreferences.join(','),
+          clientUnixTimestamp: moment.utc().unix(),
+        });
 
-        if (aHasVoxDex && !bHasVoxDex) return -1;
-        if (!aHasVoxDex && bHasVoxDex) return 1;
-        return 0;
-      });
+        const filteredNews = response?.result.filter(
+          (n: any) =>
+            (n?.generateVoxDex && n?.conversation?.length) ||
+            !n?.generateVoxDex,
+        );
 
-      setRecentNews(mapConvo(sortedNews));
-    } catch (error) {
-      console.error('Error fetching recent news:', error);
-      setRecentNews([]); // Just set empty array, no dummy data
-    } finally {
-      setIsLoadingRecentNews(false);
+        const sortedNews = [...filteredNews].sort((a, b) => {
+          const aHasVoxDex = a?.generateVoxDex && a?.conversation?.length;
+          const bHasVoxDex = b?.generateVoxDex && b?.conversation?.length;
+
+          if (aHasVoxDex && !bHasVoxDex) return -1;
+          if (!aHasVoxDex && bHasVoxDex) return 1;
+          return 0;
+        });
+
+        setTrendingNews(mapConvo(sortedNews));
+      } catch (error) {
+        console.error('Error fetching trending news:', error);
+        setTrendingNews([]);
+      } finally {
+        setIsLoadingTrendingNews(false);
+      }
+    };
+
+    loadUserData();
+    if (flattenedPreferences.length > 0) {
+      getRNews(flattenedPreferences);
+      getTNews(flattenedPreferences);
     }
-  };
-
-  const getTNews = async (newsPreferences: any) => {
-    if (subscriptionData?.isSubscriptionExpired) return;
-
-    try {
-      setIsLoadingTrendingNews(true);
-      const unixTimestamp = moment.utc().unix();
-      const response: any = await apiService.get('user/trending-news', {
-        newsPreferences: newsPreferences.join(','),
-        clientUnixTimestamp: unixTimestamp,
-      });
-
-      // First filter the news
-      const filteredNews = response?.result.filter(
-        (n: any) =>
-          (n?.generateVoxDex && n?.conversation?.length) || !n?.generateVoxDex,
-      );
-
-      // Then sort the filtered news to put items with generateVoxDex and conversation length at the top
-      const sortedNews = [...filteredNews].sort((a, b) => {
-        const aHasVoxDex = a?.generateVoxDex && a?.conversation?.length;
-        const bHasVoxDex = b?.generateVoxDex && b?.conversation?.length;
-
-        if (aHasVoxDex && !bHasVoxDex) return -1;
-        if (!aHasVoxDex && bHasVoxDex) return 1;
-        return 0;
-      });
-
-      setTrendingNews(mapConvo(sortedNews));
-    } catch (error) {
-      console.error('Error fetching trending news:', error);
-      setTrendingNews([]);
-    } finally {
-      setIsLoadingTrendingNews(false);
-    }
-  };
-
-  const renderRecentNewsItem = ({item}: {item: any}) => {
-    let imageName = getImageName(recentCategoryCount.current, item.category);
-
-    if (!imagesRef.current[item._id]) {
-      imagesRef.current[item._id] = imageName;
-    }
-    imageName = imagesRef.current[item._id];
-
-    console.log('imageName', imageName);
-
-    return (
-      <TouchableOpacity
-        style={[
-          tw`rounded-xl p-2.5 w-45 h-16 flex-row items-center gap-2`,
-          {backgroundColor: 'rgba(255, 255, 255, 0.1)'},
-        ]}
-        onPress={() => handlePlayAudio1(item._id)}>
-        <Image source={imageMap[imageName]} style={tw`w-12 h-12 rounded-md`} />
-        <Text style={tw`text-white text-sm flex-1 leading-4`}>
-          {item.headline.length > 30
-            ? item.headline.substring(0, 30) + '..'
-            : item.headline}
-        </Text>
-      </TouchableOpacity>
-    );
-  };
-
-  const renderTrendingNewsItem = ({
-    item,
-    index,
-  }: {
-    item: any;
-    index: number;
-  }) => {
-    let imageName = getImageName(trendingCategoryCount.current, item.category);
-
-    if (!imagesRef.current[item._id]) {
-      imagesRef.current[item._id] = imageName;
-    }
-    imageName = imagesRef.current[item._id];
-
-    const isActive = item._id === curNewsID;
-
-    return (
-      <TouchableOpacity
-        style={[
-          tw`rounded-xl p-2.5 mx-5 my-1.5 h-18 flex-row items-center gap-2 relative`,
-          {backgroundColor: isActive ? '#6f70aa' : 'rgba(255, 255, 255, 0.1)'},
-        ]}
-        onPress={() => handlePlayAudio1(item._id)}>
-        {isActive && (
-          <View
-            style={[
-              tw`absolute -top-1 right-0 px-2 py-0.5 rounded-xl z-10`,
-              {backgroundColor: '#4C4AE3'},
-            ]}>
-            <Text style={tw`text-white text-xs font-bold`}>tell me more</Text>
-          </View>
-        )}
-        <Image source={imageMap[imageName]} style={tw`w-12 h-13 rounded-md`} />
-        <View style={tw`flex-1`}>
-          <Text style={[tw`text-xs mb-0.5`, {color: '#947EFB'}]}>
-            #{index + 1}
-          </Text>
-          <Text style={tw`text-white text-sm font-medium`}>
-            {item.headline.length > 15
-              ? item.headline.substring(0, 15) + '..'
-              : item.headline}
-            <Text
-              style={[tw`font-normal`, {color: 'rgba(255, 255, 255, 0.5)'}]}>
-              {item.description.length > 38
-                ? item.description.substring(0, 38) + '..'
-                : item.description}
-            </Text>
-          </Text>
-        </View>
-      </TouchableOpacity>
-    );
-  };
+  }, [flattenedPreferences, loadUserData, mapConvo]);
 
   return (
     <View style={[tw`flex-1 p-0 m-0`, {backgroundColor: '#0A0710'}]}>
@@ -609,6 +592,14 @@ const HomeScreen = ({user}: HomeScreenProps) => {
 
         <View style={tw`h-25`} />
       </ScrollView>
+
+      {/* Audio Player */}
+      <BottomAudioPlayer
+        visible={showAudioPlayer}
+        onClose={handleClosePlayer}
+        news={trendingNews}
+        onTrackChange={setCurNewsID}
+      />
     </View>
   );
 };
