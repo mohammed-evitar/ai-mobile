@@ -51,6 +51,7 @@ interface BottomAudioPlayerProps {
   news: NewsItem[];
   onTrackChange?: (newsId: string) => void;
   isVoxDeux?: boolean;
+  onClose?: () => void;
 }
 
 const {width} = Dimensions.get('window');
@@ -60,6 +61,7 @@ const BottomAudioPlayer: React.FC<BottomAudioPlayerProps> = ({
   news,
   onTrackChange,
   isVoxDeux = false,
+  onClose,
 }) => {
   console.log('news, isVoxDeux', news, isVoxDeux);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -273,6 +275,16 @@ const BottomAudioPlayer: React.FC<BottomAudioPlayerProps> = ({
 
       {/* Main player container */}
       <View style={tw`bg-[#1a1a1a] pt-3 px-4 pb-6 rounded-t-[20px] shadow-lg`}>
+        {/* Close button */}
+        <TouchableOpacity
+          onPress={onClose}
+          style={tw`absolute right-4 top-3.5`}>
+          <View style={tw`flex-row items-center gap-1.5`}>
+            <Text style={tw`text-white/40 text-xs`}>Close</Text>
+            <Icon name="chevron-down" size={12} color="rgba(255,255,255,0.4)" />
+          </View>
+        </TouchableOpacity>
+
         <View style={tw`items-center`}>
           <Text
             style={tw`text-white/60 text-xs font-medium mb-2 text-center w-[${

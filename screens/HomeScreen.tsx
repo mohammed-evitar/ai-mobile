@@ -604,6 +604,11 @@ const HomeScreen = ({user}: HomeScreenProps) => {
           }
           onTrackChange={setCurNewsID}
           isVoxDeux={isVoxBuzzOn}
+          onClose={() => {
+            setShowAudioPlayer(false);
+            setIsPlaying(false);
+            setCurNewsID(null);
+          }}
         />
       )}
     </View>
