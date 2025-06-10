@@ -89,17 +89,40 @@ const BottomAudioPlayer: React.FC<BottomAudioPlayerProps> = ({
 
         await TrackPlayer.reset();
 
-        // Add all speech tracks from all news articles
-        const allTracks = news.flatMap((newsItem, newsIndex) =>
-          newsItem.speech.speech.map((speechItem, speechIndex) => ({
-            id: speechItem._id,
-            url: speechItem.audioUrl,
-            title: newsItem.headline,
-            artist: newsItem.category,
-            newsIndex: newsIndex,
-            speechIndex: speechIndex,
-          })),
-        );
+        // Add all speech tracks from all news articles, inserting transition audio between articles
+        const transitionAudioUrl =
+          'https://d279zq803tcyfh.cloudfront.net/transition.mp3';
+        const allTracks: Array<{
+          id: string;
+          url: string;
+          title: string;
+          artist: string;
+          newsIndex: number;
+          speechIndex: number;
+        }> = [];
+        news.forEach((newsItem, newsIndex) => {
+          newsItem.speech.speech.forEach((speechItem, speechIndex) => {
+            allTracks.push({
+              id: speechItem._id,
+              url: speechItem.audioUrl,
+              title: newsItem.headline,
+              artist: newsItem.category,
+              newsIndex: newsIndex,
+              speechIndex: speechIndex,
+            });
+          });
+          // Add transition audio after each article except the last one
+          if (newsIndex < news.length - 1) {
+            allTracks.push({
+              id: `transition-${newsIndex}`,
+              url: transitionAudioUrl,
+              title: 'Transition',
+              artist: 'Transition',
+              newsIndex: newsIndex,
+              speechIndex: -1,
+            });
+          }
+        });
 
         await TrackPlayer.add(allTracks);
         await TrackPlayer.play();
