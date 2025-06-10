@@ -362,7 +362,7 @@ const NewsDetailsScreen = () => {
 
           {/* Current News Card with Model */}
           {currentNews && (
-            <View style={tw`px-4 mb-6`}>
+            <View style={tw`px-4 mb-3`}>
               <View
                 style={tw`bg-white/10 rounded-xl p-3 flex-row items-center relative`}>
                 <Image
@@ -391,22 +391,22 @@ const NewsDetailsScreen = () => {
           <View style={tw`flex-row justify-center items-center gap-6`}>
             <TouchableOpacity
               onPress={handleBackwardNews}
-              style={tw`bg-white/10 p-3 rounded-lg`}>
-              <Icon name="backward" size={20} color="#fff" />
+              style={tw`bg-white/10 p-2.5 rounded-lg transform scale-90`}>
+              <Icon name="backward" size={18} color="#fff" />
             </TouchableOpacity>
             <TouchableOpacity
               onPress={handlePlayAudio}
-              style={tw`p-3.5 rounded-full bg-[#4C68F5] active:bg-[#3a3ad1] shadow-lg shadow-[#4C4AE3]/30`}>
+              style={tw`p-4 rounded-full bg-[#4C68F5] active:bg-[#3a3ad1] shadow-lg shadow-[#4C4AE3]/30`}>
               <Icon
                 name={isPlaying ? 'pause' : 'play'}
-                size={22}
+                size={24}
                 color="#fff"
               />
             </TouchableOpacity>
             <TouchableOpacity
               onPress={handleForwardNews}
-              style={tw`bg-white/10 p-3 rounded-lg`}>
-              <Icon name="forward" size={20} color="#fff" />
+              style={tw`bg-white/10 p-2.5 rounded-lg transform scale-90`}>
+              <Icon name="forward" size={18} color="#fff" />
             </TouchableOpacity>
           </View>
         </View>
