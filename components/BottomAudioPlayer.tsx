@@ -333,7 +333,7 @@ const BottomAudioPlayer: React.FC<BottomAudioPlayerProps> = ({
             </TouchableOpacity>
             <TouchableOpacity
               onPress={togglePlayback}
-              style={tw`p-3.5 rounded-full bg-[#4C4AE3] active:bg-[#3a3ad1] shadow-lg shadow-[#4C4AE3]/30`}>
+              style={tw`p-3.5 rounded-full bg-[#4C68F5] active:bg-[#3a3ad1] shadow-lg shadow-[#4C4AE3]/30`}>
               <Icon
                 name={isPlaying ? 'pause' : 'play'}
                 size={22}

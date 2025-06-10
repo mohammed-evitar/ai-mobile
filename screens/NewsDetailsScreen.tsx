@@ -22,6 +22,7 @@ import TrackPlayer, {
 } from 'react-native-track-player';
 import {setupPlayer, buildQueue} from '../services/trackPlayerService';
 import {NewsItem} from '../types/news';
+import LinearGradient from 'react-native-linear-gradient';
 
 interface RouteParams {
   news: NewsItem[];
@@ -301,17 +302,33 @@ const NewsDetailsScreen = () => {
             style={tw`absolute -top-3 self-center bg-[#38386f] rounded-full p-1 flex-row`}>
             <TouchableOpacity
               onPress={() => handleVoxBuzzToggle(false)}
-              style={tw`px-3 py-1 rounded-full ${
-                !isVoxBuzzOn ? 'bg-[#4C4AE3]' : ''
-              }`}>
-              <Text style={tw`text-white text-xs`}>Standard</Text>
+              style={tw`rounded-full`}>
+              {!isVoxBuzzOn ? (
+                <LinearGradient
+                  colors={['#1e3a8a', '#6366f1']}
+                  start={{x: 0, y: 0}}
+                  end={{x: 1, y: 0}}
+                  style={tw`rounded-full`}>
+                  <Text style={tw`text-white text-xs px-3 py-1`}>Standard</Text>
+                </LinearGradient>
+              ) : (
+                <Text style={tw`text-white text-xs px-3 py-1`}>Standard</Text>
+              )}
             </TouchableOpacity>
             <TouchableOpacity
               onPress={() => handleVoxBuzzToggle(true)}
-              style={tw`px-3 py-1 rounded-full ${
-                isVoxBuzzOn ? 'bg-[#4C4AE3]' : ''
-              }`}>
-              <Text style={tw`text-white text-xs`}>Vox Deux</Text>
+              style={tw` rounded-full`}>
+              {isVoxBuzzOn ? (
+                <LinearGradient
+                  colors={['#1e3a8a', '#6366f1']}
+                  start={{x: 0, y: 0}}
+                  end={{x: 1, y: 0}}
+                  style={tw`rounded-full`}>
+                  <Text style={tw`text-white text-xs px-3 py-1`}>Vox Deux</Text>
+                </LinearGradient>
+              ) : (
+                <Text style={tw`text-white text-xs px-3 py-1`}>Vox Deux</Text>
+              )}
             </TouchableOpacity>
           </View>
         </View>
@@ -379,10 +396,10 @@ const NewsDetailsScreen = () => {
             </TouchableOpacity>
             <TouchableOpacity
               onPress={handlePlayAudio}
-              style={tw`bg-[#4C4AE3] w-16 h-16 rounded-full items-center justify-center`}>
+              style={tw`p-3.5 rounded-full bg-[#4C68F5] active:bg-[#3a3ad1] shadow-lg shadow-[#4C4AE3]/30`}>
               <Icon
                 name={isPlaying ? 'pause' : 'play'}
-                size={24}
+                size={22}
                 color="#fff"
               />
             </TouchableOpacity>
