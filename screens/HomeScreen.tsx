@@ -17,6 +17,8 @@ import LinearGradient from 'react-native-linear-gradient';
 import tw from '../utils/tailwind';
 import {fonts} from '../utils/fonts';
 import withAuthCheck from '../utils/withAuthCheck';
+import moment from 'moment';
+import {imageMap} from '../utils/imageMap';
 
 type RootStackParamList = {
   Home: undefined;
@@ -47,72 +49,41 @@ interface HomeScreenProps {
 //   'World News',
 // ];
 
-const dummyRecentNews = [
-  {
-    _id: '1',
-    headline: 'Breaking: New AI Technology Revolutionizes Healthcare',
-    category: 'Technology',
-    description: 'Revolutionary breakthrough in medical AI...',
-  },
-  {
-    _id: '2',
-    headline: 'Global Climate Summit Reaches Historic Agreement',
-    category: 'World News',
-    description: 'World leaders unite on climate action...',
-  },
-  {
-    _id: '3',
-    headline: 'Major Sports Championship Finals This Weekend',
-    category: 'Sports',
-    description: 'Exciting matchups await sports fans...',
-  },
-  {
-    _id: '4',
-    headline: 'Stock Market Hits All-Time High',
-    category: 'Business',
-    description: 'Markets surge on positive economic data...',
-  },
-];
-
-const dummyTrendingNews = [
-  {
-    _id: '5',
-    headline: 'Space Mission Discovers New Planet',
-    category: 'Science',
-    description:
-      'Astronomers find potentially habitable world beyond our solar system',
-  },
-  {
-    _id: '6',
-    headline: 'Revolutionary Medical Treatment Approved',
-    category: 'Health',
-    description: 'New therapy offers hope for millions of patients worldwide',
-  },
-  {
-    _id: '7',
-    headline: 'Tech Giant Announces Breakthrough',
-    category: 'Technology',
-    description: 'Innovation promises to transform daily life for consumers',
-  },
-  {
-    _id: '8',
-    headline: 'Political Reform Bill Passes Senate',
-    category: 'Politics',
-    description: 'Landmark legislation addresses key social issues',
-  },
-  {
-    _id: '9',
-    headline: 'Entertainment Industry Merger Announced',
-    category: 'Entertainment',
-    description: 'Major studios combine forces in historic deal',
-  },
-  {
-    _id: '10',
-    headline: 'Economic Growth Exceeds Expectations',
-    category: 'Business',
-    description: 'Quarterly reports show strong performance across sectors',
-  },
-];
+// Skeleton Card Component for loading state
+const SkeletonCard = ({
+  variant = 'recent',
+}: {
+  variant?: 'recent' | 'trending';
+}) => (
+  <View
+    style={[
+      variant === 'recent'
+        ? tw`rounded-xl p-2.5 w-45 h-16 flex-row items-center gap-2`
+        : tw`rounded-xl p-2.5 mx-5 my-1.5 h-18 flex-row items-center gap-2`,
+      {backgroundColor: 'rgba(255, 255, 255, 0.1)'},
+    ]}>
+    <View
+      style={[
+        tw`w-12 h-12 rounded-md`,
+        {backgroundColor: 'rgba(255, 255, 255, 0.2)'},
+      ]}
+    />
+    <View style={tw`flex-1`}>
+      <View
+        style={[
+          tw`h-3 rounded mb-1`,
+          {backgroundColor: 'rgba(255, 255, 255, 0.2)', width: '80%'},
+        ]}
+      />
+      <View
+        style={[
+          tw`h-3 rounded`,
+          {backgroundColor: 'rgba(255, 255, 255, 0.1)', width: '60%'},
+        ]}
+      />
+    </View>
+  </View>
+);
 
 const HomeScreen = ({user}: HomeScreenProps) => {
   const navigation = useNavigation<HomeScreenNavigationProp>();
@@ -120,6 +91,15 @@ const HomeScreen = ({user}: HomeScreenProps) => {
   const [isPlaying, setIsPlaying] = useState(false);
   const [curNewsID, setCurNewsID] = useState<string | null>(null);
   const [trialDaysLeft] = useState(7);
+
+  // Recent News API integration
+  const [recentNews, setRecentNews] = useState<any[]>([]);
+  const [isLoadingRecentNews, setIsLoadingRecentNews] = useState(false);
+
+  // Subscription data - you may want to get this from user object or separate API
+  const subscriptionData = {
+    isSubscriptionExpired: false, // This should come from your subscription logic
+  };
 
   // Use user data from HOC
   console.log('Authenticated user:', user);
@@ -145,15 +125,55 @@ const HomeScreen = ({user}: HomeScreenProps) => {
     return [];
   };
 
-  const userCategories = getUserCategories();
-  console.log('User categories:', userCategories);
+  // Get flattened subcategories for API calls
+  const getFlattenedPreferences = () => {
+    if (!user?.newsPreferences) return [];
+
+    // Handle different possible data structures
+    if (Array.isArray(user.newsPreferences)) {
+      return user.newsPreferences;
+    }
+
+    if (typeof user.newsPreferences === 'object') {
+      // Extract all values from the newsPreferences object and flatten them
+      const allPreferences: string[] = [];
+
+      Object.values(user.newsPreferences).forEach((value: any) => {
+        if (Array.isArray(value)) {
+          // If value is an array, add all items
+          allPreferences.push(...value);
+        } else if (value && typeof value === 'string') {
+          // If value is a string, add it
+          allPreferences.push(value);
+        }
+      });
+
+      return allPreferences;
+    }
+
+    return [];
+  };
+
+  const userCategories = getUserCategories(); // For display
+  const flattenedPreferences = getFlattenedPreferences(); // For API
+  console.log('User categories (for display):', userCategories);
+  console.log('Flattened preferences (for API):', flattenedPreferences);
 
   const recentCategoryCount = useRef<{[key: string]: number}>({});
   const trendingCategoryCount = useRef<{[key: string]: number}>({});
   const imagesRef = useRef<{[key: string]: string}>({});
 
+  const [trendingNews, setTrendingNews] = useState<any[]>([]);
+  const [isLoadingTrendingNews, setIsLoadingTrendingNews] = useState(false);
+
   React.useEffect(() => {
     loadUserData();
+    // Call getRNews and getTNews when component mounts if user has categories
+    if (flattenedPreferences.length > 0) {
+      getRNews(flattenedPreferences);
+      getTNews(flattenedPreferences);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const loadUserData = async () => {
@@ -195,29 +215,94 @@ const HomeScreen = ({user}: HomeScreenProps) => {
     </TouchableOpacity>
   );
 
-  const getLocalImageSource = (imagePath: string) => {
+  // mapConvo function to process the news data
+  const mapConvo = (newsData: any[]) => {
+    // This function should process the conversation data
+    // You may need to adjust this based on your specific requirements
+    return newsData.map((item: any) => ({
+      ...item,
+      // Add any additional processing here
+    }));
+  };
+
+  // Get Recent News function exactly as specified
+  const getRNews = async (newsPreferences: any) => {
+    if (subscriptionData?.isSubscriptionExpired) return;
+
     try {
-      // For now, let's use some fallback images that exist in assets
-      if (imagePath.includes('technology')) {
-        return require('../assets/tech.png');
-      } else if (imagePath.includes('sports')) {
-        return require('../assets/sports.png');
-      } else if (imagePath.includes('health')) {
-        return require('../assets/health.png');
-      } else if (imagePath.includes('entertainment')) {
-        return require('../assets/entertainment.png');
-      } else if (
-        imagePath.includes('business') ||
-        imagePath.includes('economics')
-      ) {
-        return require('../assets/economics.png');
-      } else {
-        // Default fallback
-        return require('../assets/tech.png');
-      }
+      setIsLoadingRecentNews(true);
+      const unixTimestamp = moment.utc().unix();
+      console.log('Unix timestamp:', unixTimestamp);
+      console.log('Sending newsPreferences to API:', newsPreferences);
+      console.log(
+        'newsPreferences as comma-separated string:',
+        newsPreferences.join(','),
+      );
+
+      const response: any = await apiService.get('user/recent-news', {
+        newsPreferences: newsPreferences.join(','),
+      });
+
+      console.log('API Response:', response); // Print response to console
+
+      // First filter the news
+      const filteredNews = response?.result.filter(
+        (n: any) =>
+          (n?.generateVoxDex && n?.conversation?.length) || !n?.generateVoxDex,
+      );
+
+      // Then sort the filtered news to put items with generateVoxDex and conversation length at the top
+      const sortedNews = [...filteredNews].sort((a, b) => {
+        const aHasVoxDex = a?.generateVoxDex && a?.conversation?.length;
+        const bHasVoxDex = b?.generateVoxDex && b?.conversation?.length;
+
+        if (aHasVoxDex && !bHasVoxDex) return -1;
+        if (!aHasVoxDex && bHasVoxDex) return 1;
+        return 0;
+      });
+
+      setRecentNews(mapConvo(sortedNews));
     } catch (error) {
-      console.warn('Image not found:', imagePath);
-      return require('../assets/tech.png'); // Fallback image
+      console.error('Error fetching recent news:', error);
+      setRecentNews([]); // Just set empty array, no dummy data
+    } finally {
+      setIsLoadingRecentNews(false);
+    }
+  };
+
+  const getTNews = async (newsPreferences: any) => {
+    if (subscriptionData?.isSubscriptionExpired) return;
+
+    try {
+      setIsLoadingTrendingNews(true);
+      const unixTimestamp = moment.utc().unix();
+      const response: any = await apiService.get('user/trending-news', {
+        newsPreferences: newsPreferences.join(','),
+        clientUnixTimestamp: unixTimestamp,
+      });
+
+      // First filter the news
+      const filteredNews = response?.result.filter(
+        (n: any) =>
+          (n?.generateVoxDex && n?.conversation?.length) || !n?.generateVoxDex,
+      );
+
+      // Then sort the filtered news to put items with generateVoxDex and conversation length at the top
+      const sortedNews = [...filteredNews].sort((a, b) => {
+        const aHasVoxDex = a?.generateVoxDex && a?.conversation?.length;
+        const bHasVoxDex = b?.generateVoxDex && b?.conversation?.length;
+
+        if (aHasVoxDex && !bHasVoxDex) return -1;
+        if (!aHasVoxDex && bHasVoxDex) return 1;
+        return 0;
+      });
+
+      setTrendingNews(mapConvo(sortedNews));
+    } catch (error) {
+      console.error('Error fetching trending news:', error);
+      setTrendingNews([]);
+    } finally {
+      setIsLoadingTrendingNews(false);
     }
   };
 
@@ -238,10 +323,7 @@ const HomeScreen = ({user}: HomeScreenProps) => {
           {backgroundColor: 'rgba(255, 255, 255, 0.1)'},
         ]}
         onPress={() => handlePlayAudio1(item._id)}>
-        <Image
-          source={getLocalImageSource(imageName)}
-          style={tw`w-12 h-12 rounded-md`}
-        />
+        <Image source={imageMap[imageName]} style={tw`w-12 h-12 rounded-md`} />
         <Text style={tw`text-white text-sm flex-1 leading-4`}>
           {item.headline.length > 30
             ? item.headline.substring(0, 30) + '..'
@@ -283,10 +365,7 @@ const HomeScreen = ({user}: HomeScreenProps) => {
             <Text style={tw`text-white text-xs font-bold`}>tell me more</Text>
           </View>
         )}
-        <Image
-          source={getLocalImageSource(imageName)}
-          style={tw`w-12 h-13 rounded-md`}
-        />
+        <Image source={imageMap[imageName]} style={tw`w-12 h-13 rounded-md`} />
         <View style={tw`flex-1`}>
           <Text style={[tw`text-xs mb-0.5`, {color: '#947EFB'}]}>
             #{index + 1}
@@ -403,14 +482,25 @@ const HomeScreen = ({user}: HomeScreenProps) => {
           <Text style={tw`text-white text-base font-semibold ml-5 mt-2 mb-3`}>
             Recent News
           </Text>
-          <FlatList
-            data={dummyRecentNews}
-            renderItem={renderRecentNewsItem}
-            keyExtractor={item => item._id}
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={tw`pl-5 pr-5 gap-3`}
-          />
+          {isLoadingRecentNews ? (
+            <FlatList
+              data={Array.from({length: 5}, (_, index) => ({index}))}
+              renderItem={() => <SkeletonCard variant="recent" />}
+              keyExtractor={(_, index) => index.toString()}
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={tw`pl-5 pr-5 gap-3`}
+            />
+          ) : recentNews.length > 0 ? (
+            <FlatList
+              data={recentNews}
+              renderItem={renderRecentNewsItem}
+              keyExtractor={item => item._id}
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={tw`pl-5 pr-5 gap-3`}
+            />
+          ) : null}
         </View>
 
         {/* Mode Toggle */}
@@ -489,11 +579,21 @@ const HomeScreen = ({user}: HomeScreenProps) => {
             </TouchableOpacity>
           </View>
           <View>
-            {dummyTrendingNews.map((item, index) => (
-              <View key={item._id}>
-                {renderTrendingNewsItem({item, index})}
-              </View>
-            ))}
+            {isLoadingTrendingNews ? (
+              Array.from({length: 5}, (_, index) => (
+                <SkeletonCard key={index} variant="trending" />
+              ))
+            ) : trendingNews.length > 0 ? (
+              trendingNews.map((item, index) => (
+                <View key={item._id}>
+                  {renderTrendingNewsItem({item, index})}
+                </View>
+              ))
+            ) : (
+              <Text style={tw`text-gray-400 text-center mt-4`}>
+                No trending news found.
+              </Text>
+            )}
           </View>
         </View>
 

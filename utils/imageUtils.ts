@@ -6,10 +6,7 @@ export function getImageName(categoryCount: any, mycategory: any) {
   // Increment count and reset to 1 if it exceeds 7
   categoryCount[mycategory] = (categoryCount[mycategory] % 7) + 1;
 
-  return (
-    '/generated-images/' +
-    `${mycategory.replace(/\s+/g, '-').toLowerCase()}-${
-      categoryCount[mycategory]
-    }.png`
-  );
+  return `${mycategory.replace(/\s+/g, '-').toLowerCase()}-${
+    categoryCount[mycategory]
+  }.png`;
 }
