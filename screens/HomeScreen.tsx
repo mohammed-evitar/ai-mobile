@@ -153,18 +153,6 @@ const HomeScreen = ({user}: HomeScreenProps) => {
     }
   }, []);
 
-  const handleLogout = useCallback(async () => {
-    try {
-      await apiService.clearToken();
-      navigation.reset({
-        index: 0,
-        routes: [{name: 'Login'}],
-      });
-    } catch (error) {
-      console.error('Logout error:', error);
-    }
-  }, [navigation]);
-
   const handlePlayAudio = useCallback(() => {
     if (!isPlaying) {
       setShowAudioPlayer(true);
@@ -172,16 +160,12 @@ const HomeScreen = ({user}: HomeScreenProps) => {
     } else {
       setIsPlaying(false);
       setShowAudioPlayer(false);
+      setCurNewsID(null);
     }
   }, [isPlaying]);
 
   const handlePlayAudio1 = useCallback((newsId: string) => {
     setCurNewsID(newsId);
-  }, []);
-
-  const handleClosePlayer = useCallback(() => {
-    setShowAudioPlayer(false);
-    setIsPlaying(false);
   }, []);
 
   const renderCategoryItem = useCallback(
@@ -589,11 +573,15 @@ const HomeScreen = ({user}: HomeScreenProps) => {
 
         {/* Logout Button */}
         <TouchableOpacity
+          onPress={async () => {
+            setShowAudioPlayer(false);
+            setIsPlaying(false);
+            setCurNewsID(null); // Reset the tell me more state
+          }}
           style={[
             tw`m-5 p-4 rounded-xl items-center`,
             {backgroundColor: '#dc2626'},
-          ]}
-          onPress={handleLogout}>
+          ]}>
           <Text style={tw`text-white text-base font-semibold`}>Logout</Text>
         </TouchableOpacity>
 
@@ -601,22 +589,23 @@ const HomeScreen = ({user}: HomeScreenProps) => {
       </ScrollView>
 
       {/* Audio Player */}
-      <BottomAudioPlayer
-        visible={showAudioPlayer}
-        onClose={handleClosePlayer}
-        news={
-          isVoxBuzzOn
-            ? trendingNews.filter(
-                n =>
-                  n.generateVoxDex &&
-                  n.conversation &&
-                  n.conversation.length > 0,
-              )
-            : trendingNews
-        }
-        onTrackChange={setCurNewsID}
-        isVoxDeux={isVoxBuzzOn}
-      />
+      {showAudioPlayer && (
+        <BottomAudioPlayer
+          visible={showAudioPlayer}
+          news={
+            isVoxBuzzOn
+              ? trendingNews.filter(
+                  n =>
+                    n.generateVoxDex &&
+                    n.conversation &&
+                    n.conversation.length > 0,
+                )
+              : trendingNews
+          }
+          onTrackChange={setCurNewsID}
+          isVoxDeux={isVoxBuzzOn}
+        />
+      )}
     </View>
   );
 };

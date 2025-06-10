@@ -12,6 +12,7 @@ import TrackPlayer, {
 } from 'react-native-track-player';
 import Icon from 'react-native-vector-icons/FontAwesome5';
 import {setupPlayer} from '../services/trackPlayerService';
+import tw from '../utils/tailwind';
 
 interface SpeechItem {
   sentence: string;
@@ -53,7 +54,6 @@ interface NewsItem {
 
 interface BottomAudioPlayerProps {
   visible: boolean;
-  onClose: () => void;
   news: NewsItem[];
   onTrackChange?: (newsId: string) => void;
   isVoxDeux?: boolean;
@@ -63,7 +63,6 @@ const {width} = Dimensions.get('window');
 
 const BottomAudioPlayer: React.FC<BottomAudioPlayerProps> = ({
   visible,
-  onClose,
   news,
   onTrackChange,
   isVoxDeux = false,
@@ -78,6 +77,9 @@ const BottomAudioPlayer: React.FC<BottomAudioPlayerProps> = ({
     setupPlayer();
     return () => {
       TrackPlayer.reset();
+      setIsPlaying(false);
+      setCurrentNews(null);
+      setCurrentSentence('');
     };
   }, []);
 
@@ -231,11 +233,42 @@ const BottomAudioPlayer: React.FC<BottomAudioPlayerProps> = ({
     setIsPlaying(!isPlaying);
   };
 
-  const handleClose = async () => {
-    await TrackPlayer.reset();
-    setIsPlaying(false);
-    setCurrentSentence('');
-    onClose();
+  const handleNextStory = async () => {
+    try {
+      const queue = await TrackPlayer.getQueue();
+      const currentTrackIndex = await TrackPlayer.getCurrentTrack();
+      if (queue.length === 0 || currentTrackIndex === null) return;
+      const currentTrack = queue[currentTrackIndex];
+      const nextNewsIndex = currentTrack.newsIndex + 1;
+      const nextStoryIndex = queue.findIndex(
+        t => t.newsIndex === nextNewsIndex && t.speechIndex === 0,
+      );
+      if (nextStoryIndex !== -1) {
+        await TrackPlayer.skip(nextStoryIndex);
+        await TrackPlayer.play();
+      }
+    } catch (e) {
+      console.log('Error skipping to next story:', e);
+    }
+  };
+
+  const handlePreviousStory = async () => {
+    try {
+      const queue = await TrackPlayer.getQueue();
+      const currentTrackIndex = await TrackPlayer.getCurrentTrack();
+      if (queue.length === 0 || currentTrackIndex === null) return;
+      const currentTrack = queue[currentTrackIndex];
+      const prevNewsIndex = currentTrack.newsIndex - 1;
+      const prevStoryIndex = queue.findIndex(
+        t => t.newsIndex === prevNewsIndex && t.speechIndex === 0,
+      );
+      if (prevStoryIndex !== -1) {
+        await TrackPlayer.skip(prevStoryIndex);
+        await TrackPlayer.play();
+      }
+    } catch (e) {
+      console.log('Error skipping to previous story:', e);
+    }
   };
 
   if (!visible) return null;
@@ -243,9 +276,15 @@ const BottomAudioPlayer: React.FC<BottomAudioPlayerProps> = ({
   return (
     <View style={styles.container}>
       <View style={styles.playerContainer}>
-        <View style={styles.controls}>
-          <TouchableOpacity onPress={togglePlayback}>
+        <View style={[tw`flex-row justify-center items-center mb-5`]}>
+          <TouchableOpacity onPress={handlePreviousStory} style={tw`mx-6 p-2`}>
+            <Icon name="backward" size={24} color="#fff" />
+          </TouchableOpacity>
+          <TouchableOpacity onPress={togglePlayback} style={tw`mx-6 p-2`}>
             <Icon name={isPlaying ? 'pause' : 'play'} size={24} color="#fff" />
+          </TouchableOpacity>
+          <TouchableOpacity onPress={handleNextStory} style={tw`mx-6 p-2`}>
+            <Icon name="forward" size={24} color="#fff" />
           </TouchableOpacity>
         </View>
 
@@ -276,10 +315,6 @@ const BottomAudioPlayer: React.FC<BottomAudioPlayerProps> = ({
             </Text>
           )}
         </View>
-
-        <TouchableOpacity style={styles.closeButton} onPress={handleClose}>
-          <Icon name="times" size={20} color="#fff" />
-        </TouchableOpacity>
       </View>
     </View>
   );
@@ -328,11 +363,6 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     width: width - 80,
     opacity: 0.8,
-  },
-  closeButton: {
-    position: 'absolute',
-    top: 20,
-    right: 20,
   },
 });
 
