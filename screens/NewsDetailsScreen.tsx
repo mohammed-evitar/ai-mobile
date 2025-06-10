@@ -340,8 +340,7 @@ const NewsDetailsScreen = () => {
         </ScrollView>
 
         {/* Player Controls */}
-        <View
-          style={tw`absolute bottom-0 left-0 right-0 bg-[#040439] pt-4 pb-8`}>
+        <View style={tw`absolute bottom-0 left-0 right-0 bg-[#040439] pt-4 `}>
           <View style={tw`h-px bg-[#555593] mb-5`} />
 
           {/* Current News Card with Model */}
