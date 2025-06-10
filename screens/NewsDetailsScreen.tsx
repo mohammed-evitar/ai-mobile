@@ -115,6 +115,21 @@ const NewsDetailsScreen = () => {
         if (currentIndex < news.length - 1) {
           const nextNews = news[currentIndex + 1];
 
+          // Check if next news supports VoxDeux when in VoxDeux mode
+          if (isVoxBuzzOn && !nextNews.generateVoxDex) {
+            setShowProModal(true);
+            // Switch to standard mode
+            setIsVoxBuzzOn(false);
+            setCurrentNews(nextNews);
+            const queue = buildQueue([nextNews], false);
+            await TrackPlayer.reset();
+            await TrackPlayer.add(queue);
+            await TrackPlayer.play();
+            setIsPlaying(true);
+            isPlayingRef.current = true;
+            return;
+          }
+
           // Play transition sound
           await TrackPlayer.reset();
           await TrackPlayer.add({
@@ -215,6 +230,13 @@ const NewsDetailsScreen = () => {
       );
       if (currentIndex < news.length - 1) {
         const nextNews = news[currentIndex + 1];
+
+        // Check if next news supports VoxDeux when in VoxDeux mode
+        if (isVoxBuzzOn && !nextNews.generateVoxDex) {
+          setShowProModal(true);
+          return;
+        }
+
         setCurrentNews(nextNews);
 
         // Reset and rebuild queue with next news
@@ -279,15 +301,15 @@ const NewsDetailsScreen = () => {
 
         {/* Header */}
         <View
-          style={tw`flex-row items-center px-5 py-6 gap-2 bg-[#040439] z-10`}>
+          style={tw`flex-row items-center px-5 py-5 gap-4 bg-[#040439] z-10`}>
           <TouchableOpacity
             onPress={() => navigation.goBack()}
             style={tw`bg-white/10 rounded-lg p-2`}>
-            <Icon name="arrow-left" size={20} color="#fff" />
+            <Icon name="arrow-left" size={24} color="#fff" />
           </TouchableOpacity>
           <Text
             style={[
-              tw`text-white text-base flex-1`,
+              tw`text-white text-lg flex-1`,
               {fontFamily: fonts.ThabitBold.regular},
             ]}
             numberOfLines={1}>
@@ -309,25 +331,39 @@ const NewsDetailsScreen = () => {
                   start={{x: 0, y: 0}}
                   end={{x: 1, y: 0}}
                   style={tw`rounded-full`}>
-                  <Text style={tw`text-white text-xs px-3 py-1`}>Standard</Text>
+                  <Text style={tw`text-white text-sm px-3 py-1`}>Standard</Text>
                 </LinearGradient>
               ) : (
-                <Text style={tw`text-white text-xs px-3 py-1`}>Standard</Text>
+                <Text style={tw`text-white text-sm px-3 py-1`}>Standard</Text>
               )}
             </TouchableOpacity>
             <TouchableOpacity
               onPress={() => handleVoxBuzzToggle(true)}
-              style={tw` rounded-full`}>
+              style={tw`rounded-full relative`}>
               {isVoxBuzzOn ? (
                 <LinearGradient
                   colors={['#1e3a8a', '#6366f1']}
                   start={{x: 0, y: 0}}
                   end={{x: 1, y: 0}}
                   style={tw`rounded-full`}>
-                  <Text style={tw`text-white text-xs px-3 py-1`}>Vox Deux</Text>
+                  <Text style={tw`text-white text-sm px-3 py-1`}>Vox Deux</Text>
                 </LinearGradient>
               ) : (
-                <Text style={tw`text-white text-xs px-3 py-1`}>Vox Deux</Text>
+                <Text style={tw`text-white text-sm px-3 py-1`}>Vox Deux</Text>
+              )}
+              {currentNews?.generateVoxDex && (
+                <View style={tw`absolute -top-3 -right-1`}>
+                  <LinearGradient
+                    colors={['#555593', '#8887EE']}
+                    start={{x: 0, y: 0}}
+                    end={{x: 1, y: 0}}
+                    style={tw`rounded-xl`}>
+                    <Text
+                      style={tw`text-white/80 text-[9px] font-bold px-2 py-0.5`}>
+                      available
+                    </Text>
+                  </LinearGradient>
+                </View>
               )}
             </TouchableOpacity>
           </View>
