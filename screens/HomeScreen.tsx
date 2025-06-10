@@ -543,7 +543,16 @@ const HomeScreen = ({user}: HomeScreenProps) => {
             <Text style={tw`text-white text-base font-semibold`}>
               Trending Topics ⚡
             </Text>
-            <TouchableOpacity onPress={handlePlayAudio}>
+            <TouchableOpacity
+              onPress={handlePlayAudio}
+              disabled={
+                isLoadingTrendingNews || filteredTrendingNews.length === 0
+              }
+              style={tw`opacity-${
+                isLoadingTrendingNews || filteredTrendingNews.length === 0
+                  ? '50'
+                  : '100'
+              }`}>
               <LinearGradient
                 colors={['#4C4AE3', '#8887EE']}
                 start={{x: 0, y: 0}}
