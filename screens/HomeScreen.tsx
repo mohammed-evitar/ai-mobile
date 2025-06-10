@@ -166,13 +166,13 @@ const HomeScreen = ({user}: HomeScreenProps) => {
   }, [isPlaying]);
 
   const handlePlayAudio1 = useCallback(
-    (newsId: string) => {
+    (newsId: string, isRecent: boolean = false) => {
       navigation.navigate('NewsDetails', {
-        news: trendingNews,
+        news: isRecent ? recentNews : trendingNews,
         newsId,
       });
     },
-    [navigation, trendingNews],
+    [navigation, recentNews, trendingNews],
   );
 
   const renderCategoryItem = useCallback(
@@ -200,7 +200,7 @@ const HomeScreen = ({user}: HomeScreenProps) => {
             tw`rounded-xl p-2.5 w-45 h-16 flex-row items-center gap-2`,
             {backgroundColor: 'rgba(255, 255, 255, 0.1)'},
           ]}
-          onPress={() => handlePlayAudio1(item._id)}>
+          onPress={() => handlePlayAudio1(item._id, true)}>
           <Image
             source={imageMap[imageName]}
             style={tw`w-12 h-12 rounded-md`}
@@ -240,7 +240,7 @@ const HomeScreen = ({user}: HomeScreenProps) => {
                 : 'rgba(255, 255, 255, 0.1)',
             },
           ]}
-          onPress={() => handlePlayAudio1(item._id)}>
+          onPress={() => handlePlayAudio1(item._id, false)}>
           {isActive && (
             <View
               style={[
