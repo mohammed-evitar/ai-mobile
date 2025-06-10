@@ -242,12 +242,16 @@ const HomeScreen = ({user}: HomeScreenProps) => {
           ]}
           onPress={() => handlePlayAudio1(item._id, false)}>
           {isActive && (
-            <View
-              style={[
-                tw`absolute -top-1 right-0 px-2 py-0.5 rounded-xl z-10`,
-                {backgroundColor: '#4C4AE3'},
-              ]}>
-              <Text style={tw`text-white text-xs font-bold`}>tell me more</Text>
+            <View style={[tw`absolute -top-2 -right-1 py-0.5 rounded-xl z-10`]}>
+              <LinearGradient
+                colors={['#4C4AE3', '#8887EE']}
+                start={{x: 0, y: 0}}
+                end={{x: 0, y: 1}}
+                style={tw`rounded-xl`}>
+                <Text style={tw`text-white text-xs font-bold px-2 py-0.5`}>
+                  tell me more
+                </Text>
+              </LinearGradient>
             </View>
           )}
           <Image
