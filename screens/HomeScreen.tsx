@@ -369,6 +369,13 @@ const HomeScreen = ({user}: HomeScreenProps) => {
     }
   }, [flattenedPreferences, loadUserData, mapConvo]);
 
+  // Add this before the trending topics section rendering
+  const filteredTrendingNews = isVoxBuzzOn
+    ? trendingNews.filter(
+        n => n.generateVoxDex && n.conversation && n.conversation.length > 0,
+      )
+    : trendingNews;
+
   return (
     <View style={[tw`flex-1 p-0 m-0`, {backgroundColor: '#0A0710'}]}>
       {/* Background Image */}
@@ -566,8 +573,8 @@ const HomeScreen = ({user}: HomeScreenProps) => {
               Array.from({length: 5}, (_, index) => (
                 <SkeletonCard key={index} variant="trending" />
               ))
-            ) : trendingNews.length > 0 ? (
-              trendingNews.map((item, index) => (
+            ) : filteredTrendingNews.length > 0 ? (
+              filteredTrendingNews.map((item, index) => (
                 <View key={item._id}>
                   {renderTrendingNewsItem({item, index})}
                 </View>
@@ -597,8 +604,18 @@ const HomeScreen = ({user}: HomeScreenProps) => {
       <BottomAudioPlayer
         visible={showAudioPlayer}
         onClose={handleClosePlayer}
-        news={trendingNews}
+        news={
+          isVoxBuzzOn
+            ? trendingNews.filter(
+                n =>
+                  n.generateVoxDex &&
+                  n.conversation &&
+                  n.conversation.length > 0,
+              )
+            : trendingNews
+        }
         onTrackChange={setCurNewsID}
+        isVoxDeux={isVoxBuzzOn}
       />
     </View>
   );

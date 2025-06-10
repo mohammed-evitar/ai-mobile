@@ -56,6 +56,7 @@ interface BottomAudioPlayerProps {
   onClose: () => void;
   news: NewsItem[];
   onTrackChange?: (newsId: string) => void;
+  isVoxDeux?: boolean;
 }
 
 const {width} = Dimensions.get('window');
@@ -65,7 +66,9 @@ const BottomAudioPlayer: React.FC<BottomAudioPlayerProps> = ({
   onClose,
   news,
   onTrackChange,
+  isVoxDeux = false,
 }) => {
+  console.log('news, isVoxDeux', news, isVoxDeux);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentNews, setCurrentNews] = useState<NewsItem | null>(null);
   const [currentSentence, setCurrentSentence] = useState<string>('');
@@ -78,18 +81,22 @@ const BottomAudioPlayer: React.FC<BottomAudioPlayerProps> = ({
     };
   }, []);
 
-  // Load tracks when player becomes visible
+  // Only reload tracks when player is opened or mode changes, not on every news/onTrackChange change
   useEffect(() => {
     const loadTracks = async () => {
       try {
+        console.log('loadTracks called. news:', news, 'isVoxDeux:', isVoxDeux);
         const firstNews = news[0];
         setCurrentNews(firstNews);
-        setCurrentSentence(firstNews.speech.speech[0].sentence);
+        if (isVoxDeux) {
+          setCurrentSentence(firstNews.conversation[0]?.sentence || '');
+        } else {
+          setCurrentSentence(firstNews.speech.speech[0]?.sentence || '');
+        }
         onTrackChange?.(firstNews._id);
 
         await TrackPlayer.reset();
 
-        // Add all speech tracks from all news articles, inserting transition audio between articles
         const transitionAudioUrl =
           'https://d279zq803tcyfh.cloudfront.net/transition.mp3';
         const allTracks: Array<{
@@ -99,19 +106,34 @@ const BottomAudioPlayer: React.FC<BottomAudioPlayerProps> = ({
           artist: string;
           newsIndex: number;
           speechIndex: number;
+          speaker?: string;
         }> = [];
         news.forEach((newsItem, newsIndex) => {
-          newsItem.speech.speech.forEach((speechItem, speechIndex) => {
-            allTracks.push({
-              id: speechItem._id,
-              url: speechItem.audioUrl,
-              title: newsItem.headline,
-              artist: newsItem.category,
-              newsIndex: newsIndex,
-              speechIndex: speechIndex,
+          if (isVoxDeux) {
+            newsItem.conversation.forEach((convItem, convIndex) => {
+              allTracks.push({
+                id: `${newsIndex}-${convIndex}-${convItem._id}`,
+                url: convItem.audioUrl,
+                title: newsItem.headline,
+                artist: newsItem.category,
+                newsIndex: newsIndex,
+                speechIndex: convIndex,
+                speaker: convItem.speaker,
+              });
             });
-          });
-          // Add transition audio after each article except the last one
+          } else {
+            newsItem.speech.speech.forEach((speechItem, speechIndex) => {
+              allTracks.push({
+                id: speechItem._id,
+                url: speechItem.audioUrl,
+                title: newsItem.headline,
+                artist: newsItem.category,
+                newsIndex: newsIndex,
+                speechIndex: speechIndex,
+              });
+            });
+          }
+          // Add transition audio after each article except the last one (in BOTH modes)
           if (newsIndex < news.length - 1) {
             allTracks.push({
               id: `transition-${newsIndex}`,
@@ -123,8 +145,10 @@ const BottomAudioPlayer: React.FC<BottomAudioPlayerProps> = ({
             });
           }
         });
-
+        console.log('Built allTracks:', allTracks);
         await TrackPlayer.add(allTracks);
+        const queue = await TrackPlayer.getQueue();
+        console.log('TrackPlayer queue after add:', queue);
         await TrackPlayer.play();
         setIsPlaying(true);
       } catch (error) {
@@ -136,18 +160,65 @@ const BottomAudioPlayer: React.FC<BottomAudioPlayerProps> = ({
     if (visible && news.length > 0) {
       loadTracks();
     }
-  }, [visible, news, onTrackChange]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible, isVoxDeux]); // Do NOT include news or onTrackChange to avoid unwanted resets
 
   // Handle track changes
   useTrackPlayerEvents([Event.PlaybackTrackChanged], async event => {
     if (event.nextTrack !== undefined) {
       const track = await TrackPlayer.getTrack(event.nextTrack);
+      console.log(
+        'PlaybackTrackChanged: event.nextTrack:',
+        event.nextTrack,
+        'track:',
+        track,
+      );
       if (track) {
         const newsItem = news[track.newsIndex];
+        console.log('newsItem for this track:', newsItem);
         setCurrentNews(newsItem);
-        setCurrentSentence(newsItem.speech.speech[track.speechIndex].sentence);
+        if (isVoxDeux) {
+          const sentence =
+            newsItem.conversation[track.speechIndex]?.sentence || '';
+          setCurrentSentence(sentence);
+          console.log(
+            'VoxDeux mode: newsIndex:',
+            track.newsIndex,
+            'speechIndex:',
+            track.speechIndex,
+            'sentence:',
+            sentence,
+          );
+        } else {
+          const sentence =
+            newsItem.speech.speech[track.speechIndex]?.sentence || '';
+          setCurrentSentence(sentence);
+          console.log(
+            'Standard mode: newsIndex:',
+            track.newsIndex,
+            'speechIndex:',
+            track.speechIndex,
+            'sentence:',
+            sentence,
+          );
+        }
         onTrackChange?.(newsItem._id);
+        console.log(
+          'currentNews:',
+          newsItem,
+          'currentSentence:',
+          isVoxDeux
+            ? newsItem.conversation[track.speechIndex]?.sentence
+            : newsItem.speech.speech[track.speechIndex]?.sentence,
+        );
       }
+      const queue = await TrackPlayer.getQueue();
+      console.log('TrackPlayer queue on PlaybackTrackChanged:', queue);
+      console.log('Full news array:', news);
+      // Ensure playback continues
+      setTimeout(() => {
+        TrackPlayer.play();
+      }, 100);
     }
   });
 
@@ -186,6 +257,24 @@ const BottomAudioPlayer: React.FC<BottomAudioPlayerProps> = ({
           <Text style={styles.sentence} numberOfLines={2}>
             {currentSentence}
           </Text>
+          {/* Show speaker if in VoxDeux mode */}
+          {isVoxDeux && (
+            <Text style={[styles.category, {fontStyle: 'italic'}]}>
+              Speaker:{' '}
+              {(() => {
+                const newsIdx = currentNews
+                  ? news.findIndex(n => n._id === currentNews._id)
+                  : -1;
+                if (newsIdx !== -1 && news[newsIdx].conversation) {
+                  const convIdx = news[newsIdx].conversation.findIndex(
+                    c => c.sentence === currentSentence,
+                  );
+                  return news[newsIdx].conversation[convIdx]?.speaker || '';
+                }
+                return '';
+              })()}
+            </Text>
+          )}
         </View>
 
         <TouchableOpacity style={styles.closeButton} onPress={handleClose}>
