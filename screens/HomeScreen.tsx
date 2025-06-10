@@ -26,6 +26,7 @@ type RootStackParamList = {
   Login: undefined;
   NewsPreference: undefined;
   NewsDetails: {news: any[]; newsId: string};
+  Category: {categoryName: string};
 };
 
 type HomeScreenNavigationProp = NativeStackNavigationProp<
@@ -178,11 +179,12 @@ const HomeScreen = ({user}: HomeScreenProps) => {
   const renderCategoryItem = useCallback(
     ({item}: {item: string}) => (
       <TouchableOpacity
+        onPress={() => navigation.navigate('Category', {categoryName: item})}
         style={tw`bg-cardbg rounded-2xl px-4 py-2 border border-gray-600`}>
         <Text style={tw`text-white text-sm font-medium`}>{item}</Text>
       </TouchableOpacity>
     ),
-    [],
+    [navigation],
   );
 
   const renderRecentNewsItem = useCallback(

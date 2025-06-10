@@ -15,6 +15,7 @@ import ManualSelectionPage from './screens/ManualSelectionPage';
 import HomeScreen from './screens/HomeScreen';
 import TalkWithAIScreen from './screens/TalkWithAIScreen';
 import NewsDetailsScreen from './screens/NewsDetailsScreen';
+import CategoryScreen from './screens/CategoryScreen';
 
 // Enable hot reloading
 if (__DEV__) {
@@ -29,6 +30,7 @@ export type RootStackParamList = {
   Profile: undefined;
   TalkWithAI: {firstName: string; email: string};
   NewsDetails: {news: any[]; newsId: string};
+  Category: undefined;
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -51,6 +53,7 @@ function App(): React.JSX.Element {
         />
         <Stack.Screen name="TalkWithAI" component={TalkWithAIScreen} />
         <Stack.Screen name="NewsDetails" component={NewsDetailsScreen} />
+        <Stack.Screen name="Category" component={CategoryScreen} />
       </Stack.Navigator>
     </NavigationContainer>
   );
