@@ -1,11 +1,5 @@
-import React, {useEffect, useState} from 'react';
-import {
-  View,
-  Text,
-  TouchableOpacity,
-  StyleSheet,
-  Dimensions,
-} from 'react-native';
+import React, {useEffect, useState, useRef} from 'react';
+import {View, Text, TouchableOpacity, Dimensions, Animated} from 'react-native';
 import TrackPlayer, {
   Event,
   useTrackPlayerEvents,
@@ -71,6 +65,8 @@ const BottomAudioPlayer: React.FC<BottomAudioPlayerProps> = ({
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentNews, setCurrentNews] = useState<NewsItem | null>(null);
   const [currentSentence, setCurrentSentence] = useState<string>('');
+  const slideAnim = useRef(new Animated.Value(0)).current;
+  const opacityAnim = useRef(new Animated.Value(1)).current;
 
   // Initialize player when component mounts
   useEffect(() => {
@@ -165,62 +161,53 @@ const BottomAudioPlayer: React.FC<BottomAudioPlayerProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible, isVoxDeux]); // Do NOT include news or onTrackChange to avoid unwanted resets
 
-  // Handle track changes
+  // Handle track changes with animation
   useTrackPlayerEvents([Event.PlaybackTrackChanged], async event => {
     if (event.nextTrack !== undefined) {
-      const track = await TrackPlayer.getTrack(event.nextTrack);
-      console.log(
-        'PlaybackTrackChanged: event.nextTrack:',
-        event.nextTrack,
-        'track:',
-        track,
-      );
-      if (track) {
-        const newsItem = news[track.newsIndex];
-        console.log('newsItem for this track:', newsItem);
-        setCurrentNews(newsItem);
-        if (isVoxDeux) {
-          const sentence =
-            newsItem.conversation[track.speechIndex]?.sentence || '';
-          setCurrentSentence(sentence);
-          console.log(
-            'VoxDeux mode: newsIndex:',
-            track.newsIndex,
-            'speechIndex:',
-            track.speechIndex,
-            'sentence:',
-            sentence,
-          );
-        } else {
-          const sentence =
-            newsItem.speech.speech[track.speechIndex]?.sentence || '';
-          setCurrentSentence(sentence);
-          console.log(
-            'Standard mode: newsIndex:',
-            track.newsIndex,
-            'speechIndex:',
-            track.speechIndex,
-            'sentence:',
-            sentence,
-          );
+      // Start fade out and slide animation
+      Animated.parallel([
+        Animated.timing(opacityAnim, {
+          toValue: 0,
+          duration: 200,
+          useNativeDriver: true,
+        }),
+        Animated.timing(slideAnim, {
+          toValue: -20,
+          duration: 200,
+          useNativeDriver: true,
+        }),
+      ]).start(async () => {
+        const track = await TrackPlayer.getTrack(event.nextTrack);
+        if (track) {
+          const newsItem = news[track.newsIndex];
+          setCurrentNews(newsItem);
+          if (isVoxDeux) {
+            const sentence =
+              newsItem.conversation[track.speechIndex]?.sentence || '';
+            setCurrentSentence(sentence);
+          } else {
+            const sentence =
+              newsItem.speech.speech[track.speechIndex]?.sentence || '';
+            setCurrentSentence(sentence);
+          }
+          onTrackChange?.(newsItem._id);
+
+          // Reset position and start fade in animation
+          slideAnim.setValue(20);
+          Animated.parallel([
+            Animated.timing(opacityAnim, {
+              toValue: 1,
+              duration: 300,
+              useNativeDriver: true,
+            }),
+            Animated.timing(slideAnim, {
+              toValue: 0,
+              duration: 300,
+              useNativeDriver: true,
+            }),
+          ]).start();
         }
-        onTrackChange?.(newsItem._id);
-        console.log(
-          'currentNews:',
-          newsItem,
-          'currentSentence:',
-          isVoxDeux
-            ? newsItem.conversation[track.speechIndex]?.sentence
-            : newsItem.speech.speech[track.speechIndex]?.sentence,
-        );
-      }
-      const queue = await TrackPlayer.getQueue();
-      console.log('TrackPlayer queue on PlaybackTrackChanged:', queue);
-      console.log('Full news array:', news);
-      // Ensure playback continues
-      setTimeout(() => {
-        TrackPlayer.play();
-      }, 100);
+      });
     }
   });
 
@@ -274,31 +261,42 @@ const BottomAudioPlayer: React.FC<BottomAudioPlayerProps> = ({
   if (!visible) return null;
 
   return (
-    <View style={styles.container}>
-      <View style={styles.playerContainer}>
-        <View style={[tw`flex-row justify-center items-center mb-5`]}>
-          <TouchableOpacity onPress={handlePreviousStory} style={tw`mx-6 p-2`}>
-            <Icon name="backward" size={24} color="#fff" />
-          </TouchableOpacity>
-          <TouchableOpacity onPress={togglePlayback} style={tw`mx-6 p-2`}>
-            <Icon name={isPlaying ? 'pause' : 'play'} size={24} color="#fff" />
-          </TouchableOpacity>
-          <TouchableOpacity onPress={handleNextStory} style={tw`mx-6 p-2`}>
-            <Icon name="forward" size={24} color="#fff" />
-          </TouchableOpacity>
+    <View style={tw`absolute bottom-0 left-0 right-0`}>
+      {/* Top chip/box */}
+      <View style={tw`items-center mb-1.5`}>
+        <View style={tw`bg-[#1a1a1a] px-5 py-1.5 rounded-full`}>
+          <Text style={tw`text-white/80 text-xs font-medium`}>
+            {isVoxDeux ? 'VoxDeux' : 'Standard'}
+          </Text>
         </View>
+      </View>
 
-        <View style={styles.info}>
-          <Text style={styles.title} numberOfLines={1}>
+      {/* Main player container */}
+      <View style={tw`bg-[#1a1a1a] pt-3 px-4 pb-6 rounded-t-[20px] shadow-lg`}>
+        <View style={tw`items-center`}>
+          <Text
+            style={tw`text-white/60 text-xs font-medium mb-2 text-center w-[${
+              width - 80
+            }px]`}
+            numberOfLines={1}>
             {currentNews?.headline || 'No audio playing'}
           </Text>
-          <Text style={styles.category}>{currentNews?.category || ''}</Text>
-          <Text style={styles.sentence} numberOfLines={2}>
-            {currentSentence}
-          </Text>
-          {/* Show speaker if in VoxDeux mode */}
+
+          <Animated.View
+            style={[
+              tw`w-[${width - 80}px] mb-4`,
+              {
+                opacity: opacityAnim,
+                transform: [{translateY: slideAnim}],
+              },
+            ]}>
+            <Text style={tw`text-white text-[15px] leading-5 text-center`}>
+              {currentSentence}
+            </Text>
+          </Animated.View>
+
           {isVoxDeux && (
-            <Text style={[styles.category, {fontStyle: 'italic'}]}>
+            <Text style={tw`text-white/60 text-xs italic mb-4`}>
               Speaker:{' '}
               {(() => {
                 const newsIdx = currentNews
@@ -314,56 +312,32 @@ const BottomAudioPlayer: React.FC<BottomAudioPlayerProps> = ({
               })()}
             </Text>
           )}
+
+          <View style={tw`flex-row justify-center items-center gap-8`}>
+            <TouchableOpacity
+              onPress={handlePreviousStory}
+              style={tw`p-2.5 rounded-full bg-white/5 active:bg-white/10 shadow-sm`}>
+              <Icon name="backward" size={18} color="#fff" />
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={togglePlayback}
+              style={tw`p-3.5 rounded-full bg-[#4C4AE3] active:bg-[#3a3ad1] shadow-lg shadow-[#4C4AE3]/30`}>
+              <Icon
+                name={isPlaying ? 'pause' : 'play'}
+                size={22}
+                color="#fff"
+              />
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={handleNextStory}
+              style={tw`p-2.5 rounded-full bg-white/5 active:bg-white/10 shadow-sm`}>
+              <Icon name="forward" size={18} color="#fff" />
+            </TouchableOpacity>
+          </View>
         </View>
       </View>
     </View>
   );
 };
-
-const styles = StyleSheet.create({
-  container: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-  },
-  playerContainer: {
-    backgroundColor: '#1a1a1a',
-    padding: 20,
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-  },
-  controls: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 20,
-  },
-  info: {
-    alignItems: 'center',
-    marginBottom: 20,
-  },
-  title: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: 'bold',
-    marginBottom: 5,
-    textAlign: 'center',
-    width: width - 80,
-  },
-  category: {
-    color: '#888',
-    fontSize: 14,
-    marginBottom: 8,
-  },
-  sentence: {
-    color: '#fff',
-    fontSize: 14,
-    textAlign: 'center',
-    width: width - 80,
-    opacity: 0.8,
-  },
-});
 
 export default BottomAudioPlayer;
