@@ -25,6 +25,7 @@ type RootStackParamList = {
   Home: undefined;
   Login: undefined;
   NewsPreference: undefined;
+  NewsDetails: {news: any[]; newsId: string};
 };
 
 type HomeScreenNavigationProp = NativeStackNavigationProp<
@@ -33,7 +34,7 @@ type HomeScreenNavigationProp = NativeStackNavigationProp<
 >;
 
 interface HomeScreenProps {
-  user: any; // User data from withAuthCheck HOC
+  user?: any; // Make user prop optional
   navigation?: any;
   route?: any;
 }
@@ -164,9 +165,15 @@ const HomeScreen = ({user}: HomeScreenProps) => {
     }
   }, [isPlaying]);
 
-  const handlePlayAudio1 = useCallback((newsId: string) => {
-    setCurNewsID(newsId);
-  }, []);
+  const handlePlayAudio1 = useCallback(
+    (newsId: string) => {
+      navigation.navigate('NewsDetails', {
+        news: trendingNews,
+        newsId,
+      });
+    },
+    [navigation, trendingNews],
+  );
 
   const renderCategoryItem = useCallback(
     ({item}: {item: string}) => (
