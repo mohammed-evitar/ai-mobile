@@ -637,20 +637,6 @@ const HomeScreen = ({user, subscriptionData}: HomeScreenProps) => {
           </View>
         </View>
 
-        {/* Logout Button */}
-        <TouchableOpacity
-          onPress={async () => {
-            setShowAudioPlayer(false);
-            setIsPlaying(false);
-            setCurNewsID(null); // Reset the tell me more state
-          }}
-          style={[
-            tw`m-5 p-4 rounded-xl items-center`,
-            {backgroundColor: '#dc2626'},
-          ]}>
-          <Text style={tw`text-white text-base font-semibold`}>Logout</Text>
-        </TouchableOpacity>
-
         <View style={tw`h-25`} />
       </ScrollView>
 

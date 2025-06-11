@@ -56,7 +56,7 @@ const withSubscriptionCheck = <P extends object>(
           setSubscriptionData(response.result);
         }
       } catch (error) {
-        console.error('Error checking subscription:', error);
+        console.log('Error checking subscription:', error);
       } finally {
         setLoading(false);
       }
