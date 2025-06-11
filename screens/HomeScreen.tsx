@@ -17,6 +17,7 @@ import LinearGradient from 'react-native-linear-gradient';
 import tw from '../utils/tailwind';
 import {fonts} from '../utils/fonts';
 import withAuthCheck from '../utils/withAuthCheck';
+import withSubscriptionCheck from '../utils/withSubscriptionCheck';
 import moment from 'moment';
 import {imageMap} from '../utils/imageMap';
 import BottomAudioPlayer from '../components/BottomAudioPlayer';
@@ -27,6 +28,7 @@ type RootStackParamList = {
   NewsPreference: undefined;
   NewsDetails: {news: any[]; newsId: string};
   Category: {categoryName: string};
+  Profile: undefined;
 };
 
 type HomeScreenNavigationProp = NativeStackNavigationProp<
@@ -35,9 +37,14 @@ type HomeScreenNavigationProp = NativeStackNavigationProp<
 >;
 
 interface HomeScreenProps {
-  user?: any; // Make user prop optional
+  user?: any;
   navigation?: any;
   route?: any;
+  subscriptionData?: {
+    trialDaysLeft?: number;
+    subscriptionStatus?: 'trial' | 'active' | 'expired';
+    isSubscriptionExpired?: boolean;
+  };
 }
 
 // Dummy data
@@ -88,12 +95,11 @@ const SkeletonCard = ({
   </View>
 );
 
-const HomeScreen = ({user}: HomeScreenProps) => {
+const HomeScreen = ({user, subscriptionData}: HomeScreenProps) => {
   const navigation = useNavigation<HomeScreenNavigationProp>();
   const [isVoxBuzzOn, setIsVoxBuzzOn] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [curNewsID, setCurNewsID] = useState<string | null>(null);
-  const [trialDaysLeft] = useState(7);
   const [showAudioPlayer, setShowAudioPlayer] = useState(false);
   const [recentNews, setRecentNews] = useState<any[]>([]);
   const [isLoadingRecentNews, setIsLoadingRecentNews] = useState(false);
@@ -391,34 +397,72 @@ const HomeScreen = ({user}: HomeScreenProps) => {
           AI News
         </Text>
         <View style={tw`flex-row items-center gap-3`}>
-          {(user?.trialDaysLeft || trialDaysLeft) && (
-            <TouchableOpacity>
+          {subscriptionData?.trialDaysLeft !== undefined &&
+            subscriptionData?.trialDaysLeft !== null && (
+              <TouchableOpacity
+                onPress={() => {
+                  if (subscriptionData?.isSubscriptionExpired) {
+                    // Handle subscription modal
+                  }
+                }}>
+                <LinearGradient
+                  colors={
+                    subscriptionData?.isSubscriptionExpired
+                      ? ['#ef4444', '#ec4899']
+                      : ['#4C4AE3', '#8887EE']
+                  }
+                  start={{x: 0, y: 0}}
+                  end={{x: 1, y: 0}}
+                  style={tw`rounded-xl`}>
+                  <Text
+                    style={tw`text-white text-xs font-semibold px-4 py-1.5`}
+                    numberOfLines={1}
+                    adjustsFontSizeToFit
+                    allowFontScaling>
+                    {subscriptionData?.isSubscriptionExpired
+                      ? '✨ Upgrade to Premium'
+                      : `${subscriptionData?.trialDaysLeft} days left in trial`}
+                  </Text>
+                </LinearGradient>
+              </TouchableOpacity>
+            )}
+          {subscriptionData?.isSubscriptionExpired && (
+            <TouchableOpacity
+              onPress={() => {
+                // Handle subscription modal
+              }}>
               <LinearGradient
-                start={{x: 0, y: 0}}
                 colors={['#4C4AE3', '#8887EE']}
+                start={{x: 0, y: 0}}
                 end={{x: 1, y: 0}}
-                style={[tw`rounded-xl `, {}]}>
-                <Text
-                  style={tw`text-white text-xs font-semibold px-4 py-1.5 `}
-                  numberOfLines={1}
-                  adjustsFontSizeToFit
-                  allowFontScaling>
-                  {user?.trialDaysLeft || trialDaysLeft} days left in trial !
-                </Text>
+                style={tw`rounded-xl`}>
+                <View style={tw`flex-row items-center gap-2 px-4 py-1.5`}>
+                  <Icon name="crown" size={12} color="#fbbf24" />
+                  <Text style={tw`text-white text-xs font-semibold`}>
+                    Upgrade
+                  </Text>
+                </View>
               </LinearGradient>
             </TouchableOpacity>
           )}
-
-          <TouchableOpacity
-            onPress={() => navigation.navigate('NewsPreference')}>
-            <Image
-              source={
-                user?.picture
-                  ? {uri: user.picture}
-                  : require('../assets/justmodel.png')
-              }
-              style={tw`w-10 h-10 rounded-full`}
-            />
+          <TouchableOpacity onPress={() => navigation.navigate('Profile')}>
+            <View style={tw`relative`}>
+              <Image
+                source={
+                  user?.picture
+                    ? {uri: user.picture}
+                    : require('../assets/justmodel.png')
+                }
+                style={tw`w-10 h-10 rounded-full`}
+              />
+              {subscriptionData?.subscriptionStatus === 'active' &&
+                subscriptionData?.trialDaysLeft === null && (
+                  <View
+                    style={tw`absolute -top-1 -right-1 bg-gradient-to-b from-[#4C4AE3] to-[#8887EE] rounded-full p-1`}>
+                    <Icon name="crown" size={8} color="#fff" />
+                  </View>
+                )}
+            </View>
           </TouchableOpacity>
         </View>
       </View>
@@ -637,4 +681,4 @@ const HomeScreen = ({user}: HomeScreenProps) => {
   );
 };
 
-export default withAuthCheck(HomeScreen);
+export default withSubscriptionCheck(withAuthCheck(HomeScreen));
