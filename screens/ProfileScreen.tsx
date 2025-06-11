@@ -87,7 +87,7 @@ const ProfileScreen: React.FC<ProfileScreenProps> = ({subscriptionData}) => {
       setUser(res?.result);
       setEditing(false);
     } catch (error) {
-      Alert.alert('Error', 'Error updating profile');
+      Alert.alert('Error', 'Errodating profile');
     } finally {
       setLoading(false);
     }

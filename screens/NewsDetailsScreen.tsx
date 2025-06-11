@@ -23,6 +23,7 @@ import TrackPlayer, {
 import {setupPlayer, buildQueue} from '../services/trackPlayerService';
 import {NewsItem} from '../types/news';
 import LinearGradient from 'react-native-linear-gradient';
+import ChatModal from '../components/ChatModal';
 
 interface RouteParams {
   news: NewsItem[];
@@ -47,6 +48,8 @@ const NewsDetailsScreen = () => {
   const {height} = Dimensions.get('window');
 
   const isPlayingRef = useRef(false);
+  const [showChatModal, setShowChatModal] = useState(false);
+  const [showShareModal, setShowShareModal] = useState(false);
 
   useEffect(() => {
     const setupAndPlay = async () => {
@@ -107,6 +110,7 @@ const NewsDetailsScreen = () => {
   useTrackPlayerEvents(
     [Event.PlaybackTrackChanged, Event.PlaybackQueueEnded],
     async event => {
+      if (showChatModal) return;
       if (event.type === Event.PlaybackQueueEnded) {
         // Auto play next article
         const currentIndex = news.findIndex(
@@ -284,6 +288,42 @@ const NewsDetailsScreen = () => {
     }
   };
 
+  const handleSharePress = () => {
+    if (isPlaying) {
+      handlePlayAudio();
+    }
+    setShowShareModal(true);
+  };
+
+  const handleChatPress = async () => {
+    if (isPlaying) {
+      await handlePlayAudio();
+    }
+    setShowChatModal(true);
+  };
+
+  // Add effect to handle chat modal state changes
+  useEffect(() => {
+    if (!showChatModal && isPlaying) {
+      // When chat modal closes and we were playing, restart the audio
+      const restartAudio = async () => {
+        try {
+          if (currentNews) {
+            const queue = buildQueue([currentNews], isVoxBuzzOn);
+            await TrackPlayer.reset();
+            await TrackPlayer.add(queue);
+            await TrackPlayer.play();
+            setIsPlaying(true);
+            isPlayingRef.current = true;
+          }
+        } catch (error) {
+          console.error('Error restarting audio after chat modal:', error);
+        }
+      };
+      restartAudio();
+    }
+  }, [showChatModal, currentNews, isVoxBuzzOn, isPlaying]);
+
   return (
     <SafeAreaView style={tw`flex-1 bg-[#040439]`}>
       <View style={tw`flex-1`}>
@@ -392,88 +432,169 @@ const NewsDetailsScreen = () => {
           </View>
         </ScrollView>
 
-        {/* Player Controls */}
-        <View style={tw`absolute bottom-0 left-0 right-0 bg-[#040439] pt-4 `}>
-          <View style={tw`h-px bg-[#555593] mb-5`} />
-
-          {/* Current News Card with Model */}
-          {currentNews && (
-            <View style={tw`px-4 mb-3`}>
-              <View
-                style={tw`bg-white/10 rounded-xl p-3 flex-row items-center relative`}>
-                <Image
-                  source={imageMap[getImageName({}, currentNews.category)]}
-                  style={tw`w-12 h-12 rounded-md`}
-                />
-                <View style={tw`flex-1 ml-3`}>
-                  <Text
-                    style={tw`text-white text-sm font-medium`}
-                    numberOfLines={1}>
-                    {currentNews.headline}
-                  </Text>
-                  <Text style={tw`text-white/50 text-xs`} numberOfLines={2}>
-                    {currentNews.description}
-                  </Text>
-                </View>
-                <Image
-                  source={require('../assets/justmodel.png')}
-                  style={[tw`w-32 h-48 absolute -right-4 -top-20`]}
-                  resizeMode="contain"
-                />
-              </View>
-            </View>
-          )}
-
-          <View style={tw`flex-row justify-center items-center gap-6`}>
-            <TouchableOpacity
-              onPress={handleBackwardNews}
-              style={tw`bg-white/10 p-2.5 rounded-lg transform scale-90`}>
-              <Icon name="backward" size={18} color="#fff" />
-            </TouchableOpacity>
-            <TouchableOpacity
-              onPress={handlePlayAudio}
-              style={tw`p-4 rounded-full bg-[#4C68F5] active:bg-[#3a3ad1] shadow-lg shadow-[#4C4AE3]/30`}>
-              <Icon
-                name={isPlaying ? 'pause' : 'play'}
-                size={24}
-                color="#fff"
-              />
-            </TouchableOpacity>
-            <TouchableOpacity
-              onPress={handleForwardNews}
-              style={tw`bg-white/10 p-2.5 rounded-lg transform scale-90`}>
-              <Icon name="forward" size={18} color="#fff" />
-            </TouchableOpacity>
-          </View>
-        </View>
-
-        {/* Premium Modal */}
-        <Modal
-          visible={showProModal}
-          transparent
-          animationType="fade"
-          onRequestClose={() => setShowProModal(false)}>
-          <View style={tw`flex-1 bg-black/50 justify-center items-center`}>
+        {/* Current News Card with Model */}
+        {currentNews && (
+          <View style={tw`px-4 mb-3`}>
             <View
-              style={tw`bg-[#1a1a1a] rounded-xl p-6 m-4 w-[90%] max-w-[400px]`}>
-              <Text style={tw`text-white text-xl font-bold mb-4 text-center`}>
-                Premium Feature
-              </Text>
-              <Text style={tw`text-white/80 text-base mb-6 text-center`}>
-                This news article is available in Vox Deux mode for premium
-                users only.
-              </Text>
-              <TouchableOpacity
-                onPress={() => setShowProModal(false)}
-                style={tw`bg-[#4C4AE3] py-3 rounded-lg`}>
-                <Text style={tw`text-white text-center font-medium`}>
-                  Continue with Standard Mode
+              style={tw`bg-white/10 rounded-xl p-3 flex-row items-start relative`}>
+              <Image
+                source={imageMap[getImageName({}, currentNews.category)]}
+                style={tw`w-12 h-12 rounded-md`}
+              />
+              <View style={tw`flex-1 ml-3 mr-24`}>
+                <Text
+                  style={tw`text-white text-sm font-medium`}
+                  numberOfLines={1}>
+                  {currentNews.headline}
                 </Text>
+                <Text style={tw`text-white/50 text-xs`} numberOfLines={2}>
+                  {currentNews.description}
+                </Text>
+              </View>
+
+              <Image
+                source={require('../assets/justmodel.png')}
+                style={[tw`w-32 h-48 absolute -right-4 -top-20`]}
+                resizeMode="contain"
+              />
+            </View>
+          </View>
+        )}
+
+        {/* Combined Controls Bar */}
+        <View style={tw`bg-[#040439]  pb-6 px-4`}>
+          <View style={tw`h-px bg-[#555593] mb-4`} />
+          <View style={tw`flex-row justify-between items-center`}>
+            {/* Left Side - Player Controls */}
+            <View style={tw`flex-row items-center gap-2`}>
+              <TouchableOpacity
+                onPress={handleBackwardNews}
+                style={tw`bg-white/10 p-2.5 rounded-lg`}>
+                <Icon name="backward" size={20} color="#fff" />
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={handlePlayAudio}
+                style={tw`p-3.5 rounded-full bg-[#4C68F5] active:bg-[#3a3ad1] shadow-lg shadow-[#4C4AE3]/30`}>
+                <Icon
+                  name={isPlaying ? 'pause' : 'play'}
+                  size={24}
+                  color="#fff"
+                />
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={handleForwardNews}
+                style={tw`bg-white/10 p-2.5 rounded-lg`}>
+                <Icon name="forward" size={20} color="#fff" />
+              </TouchableOpacity>
+            </View>
+
+            {/* Right Side - Action Buttons */}
+            <View style={tw`flex-row gap-3 mr-2`}>
+              <TouchableOpacity
+                onPress={handleChatPress}
+                style={tw`bg-gradient-to-r from-[#4C4AE3] to-[#6366f1] rounded-lg flex-row items-center gap-1 shadow-lg active:opacity-90 `}>
+                <View style={tw`bg-white/20 p-1.5 rounded-md`}>
+                  <Icon name="comments" size={16} color="#fff" />
+                </View>
+                <View>
+                  <Text style={tw`text-white text-xs font-bold`}>Ask More</Text>
+                  <Text style={tw`text-white/70 text-[10px]`}>AI insights</Text>
+                </View>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                onPress={handleSharePress}
+                style={tw`bg-gradient-to-r from-[#4C4AE3] to-[#6366f1] rounded-lg flex-row items-center gap-1 shadow-lg active:opacity-90 `}>
+                <View style={tw`bg-white/20 p-1.5 rounded-md`}>
+                  <Icon name="share-alt" size={16} color="#fff" />
+                </View>
+                <View>
+                  <Text style={tw`text-white text-xs font-bold`}>AI Share</Text>
+                  <Text style={tw`text-white/70 text-[10px]`}>Share</Text>
+                </View>
               </TouchableOpacity>
             </View>
           </View>
-        </Modal>
+        </View>
       </View>
+
+      {/* Premium Modal */}
+      <Modal
+        visible={showProModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowProModal(false)}>
+        <View style={tw`flex-1 bg-black/50 justify-center items-center`}>
+          <View
+            style={tw`bg-[#1a1a1a] rounded-xl p-6 m-4 w-[90%] max-w-[400px]`}>
+            <Text style={tw`text-white text-xl font-bold mb-4 text-center`}>
+              Premium Feature
+            </Text>
+            <Text style={tw`text-white/80 text-base mb-6 text-center`}>
+              This news article is available in Vox Deux mode for premium users
+              only.
+            </Text>
+            <TouchableOpacity
+              onPress={() => setShowProModal(false)}
+              style={tw`bg-[#4C4AE3] py-3 rounded-lg`}>
+              <Text style={tw`text-white text-center font-medium`}>
+                Continue with Standard Mode
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Chat Modal */}
+      <ChatModal
+        isOpen={showChatModal}
+        onClose={() => setShowChatModal(false)}
+        currentNews={currentNews}
+      />
+
+      {/* Share Modal */}
+      <Modal
+        visible={showShareModal}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowShareModal(false)}>
+        <View style={tw`flex-1 bg-black/50 justify-end`}>
+          <View style={tw`bg-[#1a1a1a] rounded-t-xl p-4`}>
+            <View style={tw`flex-row justify-between items-center mb-4`}>
+              <Text style={tw`text-white text-lg font-bold`}>Share</Text>
+              <TouchableOpacity onPress={() => setShowShareModal(false)}>
+                <Icon name="times" size={24} color="#fff" />
+              </TouchableOpacity>
+            </View>
+
+            <View style={tw`flex-row justify-around mb-4`}>
+              <TouchableOpacity style={tw`items-center`}>
+                <View
+                  style={tw`bg-[#4C4AE3] w-12 h-12 rounded-full items-center justify-center mb-2`}>
+                  <Icon name="facebook" size={24} color="#fff" />
+                </View>
+                <Text style={tw`text-white text-xs`}>Facebook</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity style={tw`items-center`}>
+                <View
+                  style={tw`bg-[#4C4AE3] w-12 h-12 rounded-full items-center justify-center mb-2`}>
+                  <Icon name="twitter" size={24} color="#fff" />
+                </View>
+                <Text style={tw`text-white text-xs`}>Twitter</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity style={tw`items-center`}>
+                <View
+                  style={tw`bg-[#4C4AE3] w-12 h-12 rounded-full items-center justify-center mb-2`}>
+                  <Icon name="link" size={24} color="#fff" />
+                </View>
+                <Text style={tw`text-white text-xs`}>Copy Link</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 };

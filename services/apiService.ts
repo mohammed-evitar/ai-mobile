@@ -205,15 +205,21 @@ class ApiService {
    * Convenience method for POST requests.
    * @param endpoint - API endpoint.
    * @param data - Request payload.
+   * @param config - Additional request configuration.
    * @returns The response data.
    */
-  public async post<T>(endpoint: string, data: any): Promise<T> {
-    const config: AxiosRequestConfig = {
+  public async post<T>(
+    endpoint: string,
+    data: any,
+    config?: AxiosRequestConfig,
+  ): Promise<T> {
+    const requestConfig: AxiosRequestConfig = {
       method: 'POST',
       url: endpoint,
       data,
+      ...config,
     };
-    return this.performApiCall<T>(config);
+    return this.performApiCall<T>(requestConfig);
   }
 
   /**
@@ -259,12 +265,15 @@ class ApiService {
     onData: (data: T) => void,
   ): Promise<void> {
     try {
-      const response = await fetch(`${process.env.API_BASE_URL}${endpoint}`, {
+      console.log('Starting stream request to:', `${API_BASE_URL}${endpoint}`);
+      const response = await fetch(`${API_BASE_URL}${endpoint}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${this.token}`,
           'x-client-time': this.getFormattedDate(),
+          'x-is-mobile': 'true',
+          'x-app-version': '1.0.0',
         },
         body: JSON.stringify(data),
       });
@@ -273,29 +282,33 @@ class ApiService {
         throw new Error(`API error: ${response.status} ${response.statusText}`);
       }
 
-      const reader = response.body?.getReader();
-      const decoder = new TextDecoder();
-      let buffer = '';
+      console.log('Stream response received, starting to read...');
 
-      while (reader) {
-        const {value, done} = await reader.read();
-        if (done) break;
+      // Get the response as text
+      const text = await response.text();
+      console.log('Raw response:', text);
 
-        buffer += decoder.decode(value, {stream: true});
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
+      // Split the response into lines
+      const lines = text.split('\n');
+      console.log('Number of lines:', lines.length);
 
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            const data = line.substring(6);
-            if (data === '[DONE]') break;
+      // Process each line
+      for (const line of lines) {
+        console.log('Processing line:', line);
+        if (line.startsWith('data: ')) {
+          const data = line.substring(6);
+          console.log('Extracted data:', data);
+          if (data === '[DONE]') {
+            console.log('Received [DONE] signal');
+            break;
+          }
 
-            try {
-              const parsed = JSON.parse(data) as T;
-              onData(parsed);
-            } catch (e) {
-              console.error('Error parsing JSON:', e, data);
-            }
+          try {
+            const parsed = JSON.parse(data) as T;
+            console.log('Successfully parsed data:', parsed);
+            onData(parsed);
+          } catch (e) {
+            console.error('Error parsing JSON:', e, 'Raw data:', data);
           }
         }
       }
