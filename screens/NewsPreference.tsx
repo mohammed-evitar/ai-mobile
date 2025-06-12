@@ -1,27 +1,31 @@
 import React from 'react';
 import {View, Text, TouchableOpacity, Image} from 'react-native';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
-import {useNavigation, useRoute, RouteProp} from '@react-navigation/native';
+import {useNavigation} from '@react-navigation/native';
 import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import type {RootStackParamList} from '../App';
 import StarIcon from '../components/StarIcon';
 import tw from '../utils/tailwind';
 import {fonts} from '../utils/fonts';
+import withAuthCheck from '../utils/withAuthCheck';
 
 type NewsPreferenceScreenNavigationProp = NativeStackNavigationProp<
   RootStackParamList,
   'NewsPreference'
 >;
-type NewsPreferenceScreenRouteProp = RouteProp<
-  RootStackParamList,
-  'NewsPreference'
->;
 
-const NewsPreference = () => {
+interface NewsPreferenceProps {
+  user?: {
+    name: string;
+    firstName: string;
+    email: string;
+  };
+}
+
+const NewsPreference = ({user}: NewsPreferenceProps) => {
+  console.log('NewsPreference-user', user);
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<NewsPreferenceScreenNavigationProp>();
-  const route = useRoute<NewsPreferenceScreenRouteProp>();
-  const {user} = route.params;
 
   const handleTalkWithAIClick = () => {
     navigation.navigate('TalkWithAI', {
@@ -95,4 +99,4 @@ const NewsPreference = () => {
   );
 };
 
-export default NewsPreference;
+export default withAuthCheck(NewsPreference);

@@ -32,6 +32,7 @@ import type {RootStackParamList} from '../App';
 import {fonts} from '../utils/fonts';
 import AudioRecorderPlayer from 'react-native-audio-recorder-player';
 import RNFS from 'react-native-fs';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 type Step =
   | 'intro'
@@ -198,6 +199,7 @@ const TalkWithAIScreen: React.FC = () => {
   useEffect(() => {
     setupPlayer();
     return () => {
+      console.log('TalkWithAIScreen-resetting player');
       TrackPlayer.reset();
     };
   }, []);
@@ -218,38 +220,40 @@ const TalkWithAIScreen: React.FC = () => {
     }
   };
 
-  useEffect(() => {
-    if (step === 'intro') {
-      (async () => {
-        setIsLoadingIntroAudio(true);
-        try {
-          console.log('Fetching intro audio for firstName:', firstName);
-          const res = await apiService.post<any>('/user/name-to-audio', {
-            firstName,
-          });
-          console.log('Intro audio fetched:', res.result.audioUrl);
-          if (res.result.audioUrl) {
-            setOnboardingIntro(res.result.sentence);
-            setIsLoadingIntroAudio(false);
-            setDisplayText(res.result.sentence);
+  useFocusEffect(
+    React.useCallback(() => {
+      if (step === 'intro') {
+        (async () => {
+          setIsLoadingIntroAudio(true);
+          try {
+            console.log('Fetching intro audio for firstName:', firstName);
+            const res = await apiService.post<any>('/user/name-to-audio', {
+              firstName,
+            });
+            console.log('Intro audio fetched:', res.result.audioUrl);
+            if (res.result.audioUrl) {
+              setOnboardingIntro(res.result.sentence);
+              setIsLoadingIntroAudio(false);
+              setDisplayText(res.result.sentence);
 
-            await playAudio(res.result.audioUrl);
-            setDisplayText(
-              "Let's make your news feed all about YOU. What topics get you excited? Sports? Business? Tech? Or something else?\nTap the mic, say what you love, then tap submit.",
-            );
-            await playAudio(
-              'https://d279zq803tcyfh.cloudfront.net/onboarding/3e4d5dfe-f798-4dde-b903-9bf467742f97.mp3',
-            );
-            setStep('recording1');
-          } else {
-            console.error('No audio URL returned from API');
+              await playAudio(res.result.audioUrl);
+              setDisplayText(
+                "Let's make your news feed all about YOU. What topics get you excited? Sports? Business? Tech? Or something else?\nTap the mic, say what you love, then tap submit.",
+              );
+              await playAudio(
+                'https://d279zq803tcyfh.cloudfront.net/onboarding/3e4d5dfe-f798-4dde-b903-9bf467742f97.mp3',
+              );
+              setStep('recording1');
+            } else {
+              console.error('No audio URL returned from API');
+            }
+          } catch (err) {
+            console.error('Error fetching intro audio', err);
           }
-        } catch (err) {
-          console.error('Error fetching intro audio', err);
-        }
-      })();
-    }
-  }, [step, firstName]);
+        })();
+      }
+    }, [step, firstName]),
+  );
 
   useTrackPlayerEvents(
     [Event.PlaybackTrackChanged, Event.PlaybackState],
@@ -458,9 +462,16 @@ const TalkWithAIScreen: React.FC = () => {
         email,
       });
 
-      const result = await apiService.post('/transcribe', formData);
+      const res: any = await apiService.post('/transcribe', formData);
+      console.log('TalkWithAIScreen-result', res);
+      if (res && res?.user) {
+        await AsyncStorage.setItem('user', JSON.stringify(res.user));
+      }
+
       await TrackPlayer.stop();
-      console.log('Transcripts sent successfully:', result);
+      await TrackPlayer.reset();
+
+      console.log('Transcripts sent successfully:', res);
       navigation.navigate('Home' as never);
     } catch (err) {
       console.error('Error sending transcripts:', err);

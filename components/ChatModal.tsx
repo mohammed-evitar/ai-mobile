@@ -205,7 +205,7 @@ const ChatModal: React.FC<ChatModalProps> = ({
     if (!isOpen || !userEmail || !currentNews?._id) return;
 
     console.log('Initializing socket connection...');
-    const socketInstance = io('http://192.168.179.97:8080', {
+    const socketInstance = io('http://192.168.184.97:8080', {
       transports: ['websocket'],
       withCredentials: true,
     });

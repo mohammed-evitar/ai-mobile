@@ -24,12 +24,12 @@ if (__DEV__) {
 }
 
 export type RootStackParamList = {
-  Home: {user: any};
+  Home: undefined;
   Login: undefined;
-  NewsPreference: {user: any};
+  NewsPreference: undefined;
   ManualSelectionPage: {user: any};
   Profile: undefined;
-  TalkWithAI: {firstName: string; email: string};
+  TalkWithAI: {firstName?: string; email?: string};
   NewsDetails: {news: any[]; newsId: string};
   Category: undefined;
 };
