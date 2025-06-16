@@ -11,6 +11,8 @@ import {
   Platform,
   Alert,
   PermissionsAndroid,
+  Animated,
+  Easing,
 } from 'react-native';
 import Icon from 'react-native-vector-icons/FontAwesome5';
 import LinearGradient from 'react-native-linear-gradient';
@@ -28,6 +30,13 @@ import {
   stopChatAudio,
   cleanupChatPlayer,
 } from '../services/chatTrackPlayerService';
+import TrackPlayer from 'react-native-track-player';
+import RNFS from 'react-native-fs';
+import {
+  Capability,
+  PitchAlgorithm,
+  AppKilledPlaybackBehavior,
+} from 'react-native-track-player';
 
 interface ChatModalProps {
   isOpen: boolean;
@@ -39,6 +48,7 @@ interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
   audioUrl?: string;
+  completeAudioUrl?: string;
   _id?: string;
   transcribedText?: string;
 }
@@ -52,6 +62,60 @@ interface ChatHistoryResponse {
   updatedAt: string;
   __v: number;
 }
+
+// Add a queue type for better type safety
+interface AudioQueueItem {
+  url: string;
+  messageId: string;
+}
+
+// Constants for audio optimization
+const AUDIO_BUFFER_SIZE = 1024; // Small buffer size for lower latency
+const AUDIO_FORMAT = {
+  android: {
+    // Android-specific audio format settings
+    sampleRate: 44100,
+    channelConfig: 'mono',
+    audioFormat: 'ENCODING_PCM_16BIT',
+  },
+  ios: {
+    // iOS-specific audio format settings
+    sampleRate: 44100,
+    numberOfChannels: 1,
+    bitDepth: 16,
+  },
+};
+
+// Add a function to check if file exists
+const fileExists = async (filePath: string): Promise<boolean> => {
+  try {
+    const exists = await RNFS.exists(filePath);
+    return exists;
+  } catch (error) {
+    console.error('❌ Error checking file existence:', error);
+    return false;
+  }
+};
+
+// Add a function to safely delete a file
+const safeDeleteFile = async (filePath: string) => {
+  try {
+    const exists = await fileExists(filePath);
+    if (exists) {
+      await RNFS.unlink(filePath);
+      console.log('🧹 Cleaned up temporary audio file:', filePath);
+    } else {
+      console.log('ℹ️ File already deleted:', filePath);
+    }
+  } catch (error) {
+    console.error('❌ Error cleaning up temporary file:', error);
+  }
+};
+
+// Add back the helper function to check if URL is local file
+const isLocalFileUrl = (url: string): boolean => {
+  return url.startsWith('file://');
+};
 
 const ChatModal: React.FC<ChatModalProps> = ({
   isOpen,
@@ -74,7 +138,33 @@ const ChatModal: React.FC<ChatModalProps> = ({
   const [_isConnected, setIsConnected] = useState(false);
   const socketRef = useRef<any>(null);
   const [isPlayerReady, setIsPlayerReady] = useState(false);
-  const audioQueueRef = useRef<string[]>([]);
+  const audioQueueRef = useRef<AudioQueueItem[]>([]);
+  const [socketError, setSocketError] = useState<string | null>(null);
+  const [isConnecting, setIsConnecting] = useState(false);
+  const reconnectAttemptsRef = useRef(0);
+  const MAX_RECONNECT_ATTEMPTS = 3;
+  const RECONNECT_DELAY = 1000; // 1 second
+  const isPlayingRef = useRef(false);
+  const filesToCleanupRef = useRef<Map<string, NodeJS.Timeout>>(new Map());
+  const activeAudioFilesRef = useRef<Set<string>>(new Set());
+  const [isBuffering, setIsBuffering] = useState(false);
+  const [streamingMessageId, setStreamingMessageId] = useState<string | null>(
+    null,
+  );
+
+  // Create refs for values that need to be accessed in socket callbacks
+  const chatMessagesRef = useRef(chatMessages);
+  const isStreamingRef = useRef(isStreaming);
+  const isProcessingRef = useRef(isProcessing);
+  const isPlayerReadyRef = useRef(isPlayerReady);
+
+  // Update refs when values change
+  useEffect(() => {
+    chatMessagesRef.current = chatMessages;
+    isStreamingRef.current = isStreaming;
+    isProcessingRef.current = isProcessing;
+    isPlayerReadyRef.current = isPlayerReady;
+  }, [chatMessages, isStreaming, isProcessing, isPlayerReady]);
 
   useEffect(() => {
     const getUserEmail = async () => {
@@ -133,228 +223,491 @@ const ChatModal: React.FC<ChatModalProps> = ({
       await stopChatAudio();
       audioQueueRef.current = [];
       console.log('🛑 Chat audio stopped');
-    } catch (error) {
-      console.error('❌ Error stopping chat audio:', error);
-    }
+    } catch (error) {}
   }, []);
 
-  const playStreamingAudio = useCallback(
-    async (audioUrl: string) => {
-      if (!isPlayerReady) {
-        console.log('⏳ Queueing audio for later playback');
-        audioQueueRef.current.push(audioUrl);
+  // Update the cleanup function to be more selective
+  const scheduleFileCleanup = useCallback(
+    (filePath: string, delay: number = 5000) => {
+      // Don't schedule cleanup if this is an active audio file
+      if (activeAudioFilesRef.current.has(filePath)) {
+        console.log('🔒 Keeping audio file for replay:', filePath);
         return;
       }
 
-      try {
-        await playChatAudio(audioUrl);
-        console.log('▶️ Chat audio playback started');
-      } catch (error) {
-        console.error('❌ Error playing chat audio:', error);
-        Alert.alert('Audio Error', 'Failed to play audio response');
+      // Clear any existing cleanup timeout for this file
+      const existingTimeout = filesToCleanupRef.current.get(filePath);
+      if (existingTimeout) {
+        clearTimeout(existingTimeout);
       }
+
+      // Schedule new cleanup
+      const timeout = setTimeout(async () => {
+        // Only clean up if the file is not in active files
+        if (!activeAudioFilesRef.current.has(filePath)) {
+          await safeDeleteFile(filePath);
+          filesToCleanupRef.current.delete(filePath);
+        }
+      }, delay);
+
+      filesToCleanupRef.current.set(filePath, timeout);
     },
-    [isPlayerReady],
+    [],
   );
 
-  // Initialize chat's TrackPlayer
-  useEffect(() => {
-    let isMounted = true;
-
-    const setupPlayer = async () => {
-      try {
-        const success = await setupChatPlayer();
-        if (isMounted && success) {
-          setIsPlayerReady(true);
-          console.log('✅ Chat TrackPlayer initialized');
-
-          // Play any queued audio
-          if (audioQueueRef.current.length > 0) {
-            console.log('🎵 Playing queued audio...');
-            const nextAudio = audioQueueRef.current.shift();
-            if (nextAudio) {
-              await playStreamingAudio(nextAudio);
-            }
-          }
-        }
-      } catch (error) {
-        console.error('❌ Error initializing chat TrackPlayer:', error);
-        if (isMounted) {
-          setIsPlayerReady(false);
-        }
-      }
-    };
-
-    if (isOpen) {
-      setupPlayer();
+  // Update processAudioQueue to handle both local and remote URLs
+  const processAudioQueue = useCallback(async () => {
+    if (isPlayingRef.current || audioQueueRef.current.length === 0) {
+      return;
     }
 
-    // Cleanup when modal closes
-    return () => {
-      isMounted = false;
-      if (isPlayerReady) {
-        cleanupChatPlayer();
-        setIsPlayerReady(false);
-        audioQueueRef.current = [];
+    try {
+      isPlayingRef.current = true;
+      const nextAudio = audioQueueRef.current[0];
+
+      // Only check file existence for local files
+      if (isLocalFileUrl(nextAudio.url)) {
+        const filePath = nextAudio.url.replace('file://', '');
+        const exists = await fileExists(filePath);
+        if (!exists) {
+          console.error('❌ Audio file not found:', filePath);
+          // Remove from queue and try next
+          audioQueueRef.current.shift();
+          isPlayingRef.current = false;
+          processAudioQueue();
+          return;
+        }
       }
-    };
-  }, [isOpen, playStreamingAudio, isPlayerReady]);
 
-  // Update socket event handlers
-  useEffect(() => {
-    if (!isOpen || !userEmail || !currentNews?._id) return;
-
-    console.log('Initializing socket connection...');
-    const socketInstance = io('http://192.168.184.97:8080', {
-      transports: ['websocket'],
-      withCredentials: true,
-    });
-
-    socketRef.current = socketInstance;
-
-    socketInstance.on('connect', () => {
-      console.log('✅ Socket connected successfully');
-      setIsConnected(true);
-      console.log('Joining chat room:', {
-        newsId: currentNews._id,
-        email: userEmail,
-      });
-      socketInstance.emit('join-chat', {
-        newsId: currentNews._id,
-        email: userEmail,
-      });
-    });
-
-    socketInstance.on('disconnect', () => {
-      console.log('❌ Socket disconnected');
-      setIsConnected(false);
-      setIsStreaming(false);
-    });
-
-    socketInstance.on('ai-response', async (data: any) => {
-      console.log('📥 Received AI response:', {
-        hasContent: !!data.content,
-        hasAudio: !!data.audio,
-        isComplete: data.isComplete,
-        hasTranscription: !!data.transcribedText,
-        audioLength: data.audio?.length,
-        isPlayerReady,
+      console.log('🎵 Processing next audio in queue:', {
+        messageId: nextAudio.messageId,
+        queueLength: audioQueueRef.current.length,
+        url: nextAudio.url.substring(0, 50) + '...',
+        isLocalFile: isLocalFileUrl(nextAudio.url),
       });
 
-      const {content, audio, isComplete, transcribedText} = data;
+      // Stop any existing playback
+      await stopChatAudio();
 
-      if (transcribedText) {
-        console.log(
-          '📝 Updating user message with transcription:',
-          transcribedText,
-        );
+      // Create a track object with optimized settings
+      const track = {
+        url: nextAudio.url,
+        title: 'AI Response',
+        artist: 'Assistant',
+        duration: 0,
+        isLiveStream: true,
+      };
+
+      // Set up the track and start playback
+      await TrackPlayer.reset();
+      await TrackPlayer.add(track);
+      await TrackPlayer.play();
+      setPlayingAudioId(nextAudio.messageId);
+
+      // Add event listener for playback completion
+      const subscription = TrackPlayer.addEventListener(
+        Event.PlaybackState,
+        async (event: any) => {
+          if (event.state === State.Stopped || event.state === State.Ended) {
+            console.log('🎵 Audio playback completed:', nextAudio.messageId);
+            subscription.remove();
+
+            // Remove the completed audio from queue
+            audioQueueRef.current.shift();
+            setPlayingAudioId(null);
+            isPlayingRef.current = false;
+
+            // Only clean up local files after a delay to allow for replay
+            if (isLocalFileUrl(nextAudio.url)) {
+              const filePath = nextAudio.url.replace('file://', '');
+              // Schedule cleanup after a longer delay (30 seconds) to allow for replay
+              scheduleFileCleanup(filePath, 30000);
+            }
+
+            // Process next audio if available
+            if (audioQueueRef.current.length > 0) {
+              console.log('🎵 Queue not empty, processing next audio...');
+              processAudioQueue();
+            }
+          } else if (event.state === State.Error) {
+            subscription.remove();
+
+            // Remove the failed audio from queue
+            audioQueueRef.current.shift();
+            setPlayingAudioId(null);
+            isPlayingRef.current = false;
+
+            // Only clean up local files
+            if (isLocalFileUrl(nextAudio.url)) {
+              const filePath = nextAudio.url.replace('file://', '');
+              await safeDeleteFile(filePath);
+            }
+
+            Alert.alert(
+              'Audio Error',
+              'Failed to play audio. Moving to next response.',
+            );
+            // Try next audio
+            processAudioQueue();
+          }
+        },
+      );
+    } catch (error) {
+      console.error('❌ Error processing audio queue:', error);
+      // Remove the failed audio from queue
+      const failedAudio = audioQueueRef.current.shift();
+      if (failedAudio) {
+        if (isLocalFileUrl(failedAudio.url)) {
+          const filePath = failedAudio.url.replace('file://', '');
+          await safeDeleteFile(filePath);
+        }
+      }
+      isPlayingRef.current = false;
+      // Try next audio
+      processAudioQueue();
+    }
+  }, []);
+
+  // Update handleAiResponse to track active audio files
+  const handleAiResponse = async (data: any) => {
+    console.log('📥 Received AI response:', {
+      hasContent: !!data.content,
+      hasAudio: !!data.audio,
+      isComplete: data.isComplete,
+      hasTranscription: !!data.transcribedText,
+      audioLength: data.audio?.length,
+      isPlayerReady: isPlayerReadyRef.current,
+      currentPlayingId: playingAudioId,
+      messageId: data.messageId,
+      hostedAudioUrl: data.hostedAudioUrl,
+    });
+
+    const {
+      content,
+      audio,
+      isComplete,
+      transcribedText,
+      messageId,
+      hostedAudioUrl,
+    } = data;
+
+    // Set streaming state immediately when we receive a response
+    if (!isStreaming) {
+      setIsStreaming(true);
+      setStreamingMessageId(messageId);
+    }
+
+    // Handle transcription first if available
+    if (transcribedText) {
+      console.log(
+        '📝 Updating user message with transcription:',
+        transcribedText,
+      );
+      setChatMessages(prev => {
+        const newMessages = [...prev];
+        const lastUserMessage = newMessages[newMessages.length - 1];
+        if (lastUserMessage && lastUserMessage.role === 'user') {
+          lastUserMessage.content = transcribedText;
+          lastUserMessage.transcribedText = transcribedText;
+        }
+        return newMessages;
+      });
+    }
+
+    // Handle audio if available
+    if (audio) {
+      try {
+        console.log('🔊 Processing audio response...');
+
+        // Create a temporary file path
+        const tempFilePath = `${
+          RNFS.CachesDirectoryPath
+        }/ai_response_${Date.now()}.mp3`;
+
+        // Write base64 audio to file
+        const base64Data = audio.replace(/^data:audio\/\w+;base64,/, '');
+        await RNFS.writeFile(tempFilePath, base64Data, 'base64');
+        console.log('🔊 Created temporary audio file:', tempFilePath);
+
+        // Add to active files BEFORE updating messages
+        activeAudioFilesRef.current.add(tempFilePath);
+
+        // Update the last assistant message with audio URL and messageId
         setChatMessages(prev => {
           const newMessages = [...prev];
-          const lastUserMessage = newMessages[newMessages.length - 1];
-          if (lastUserMessage && lastUserMessage.role === 'user') {
-            lastUserMessage.content = transcribedText;
-            lastUserMessage.transcribedText = transcribedText;
+          const lastMessage = newMessages[newMessages.length - 1];
+          if (lastMessage && lastMessage.role === 'assistant') {
+            console.log(
+              '📝 Updating assistant message with audio URL and messageId:',
+              messageId,
+            );
+            // During streaming, use the temporary file
+            lastMessage.audioUrl = `file://${tempFilePath}`;
+            lastMessage._id = messageId;
+
+            // If this is the final chunk and we have a hosted URL, store it
+            if (isComplete && hostedAudioUrl) {
+              console.log(
+                '✅ Storing hosted audio URL for replay:',
+                hostedAudioUrl,
+              );
+              lastMessage.audioUrl = hostedAudioUrl; // Update to use hosted URL
+              lastMessage.completeAudioUrl = hostedAudioUrl;
+            }
+          }
+          return newMessages;
+        });
+
+        // Add to audio queue with backend messageId
+        audioQueueRef.current.push({
+          url: `file://${tempFilePath}`,
+          messageId,
+        });
+        console.log('🎵 Added audio to queue:', {
+          messageId,
+          queueLength: audioQueueRef.current.length,
+          isStreaming: true,
+        });
+
+        // Start processing queue if not already playing
+        if (!isPlayingRef.current) {
+          setPlayingAudioId(messageId); // Set playing state immediately for streaming
+          processAudioQueue();
+        }
+      } catch (error) {
+        console.error('❌ Error processing audio:', error);
+        Alert.alert('Audio Error', 'Failed to process audio response');
+        setIsStreaming(false);
+        setStreamingMessageId(null);
+      }
+    }
+
+    // Update message content
+    setChatMessages(prev => {
+      const newMessages = [...prev];
+      const lastMessage = newMessages[newMessages.length - 1];
+
+      if (lastMessage && lastMessage.role === 'assistant') {
+        console.log('📝 Updating existing assistant message');
+        lastMessage.content = content;
+      } else {
+        console.log('📝 Adding new assistant message');
+        newMessages.push({
+          role: 'assistant',
+          content: content,
+        });
+      }
+
+      return newMessages;
+    });
+
+    // Handle completion
+    if (isComplete) {
+      console.log('✅ Response complete');
+      setIsStreaming(false);
+      setStreamingMessageId(null);
+      setIsProcessing(false);
+
+      // If we have a hosted URL, update the message to use it
+      if (hostedAudioUrl) {
+        setChatMessages(prev => {
+          const newMessages = [...prev];
+          const lastMessage = newMessages[newMessages.length - 1];
+          if (lastMessage && lastMessage.role === 'assistant') {
+            console.log('🔄 Updating to hosted audio URL:', hostedAudioUrl);
+            lastMessage.audioUrl = hostedAudioUrl;
+            lastMessage.completeAudioUrl = hostedAudioUrl;
           }
           return newMessages;
         });
       }
 
-      if (audio && !transcribedText) {
-        try {
-          console.log('🔊 Processing streaming audio...');
-          setIsStreaming(true);
-
-          const audioUrl = `data:audio/mp3;base64,${audio}`;
-          await playStreamingAudio(audioUrl);
-        } catch (error) {
-          console.error('❌ Error playing audio chunk:', error);
-          Alert.alert('Audio Error', 'Failed to play audio response');
-        }
-      }
-
-      setChatMessages(prev => {
-        const newMessages = [...prev];
-        const lastMessage = newMessages[newMessages.length - 1];
-
-        if (lastMessage && lastMessage.role === 'assistant') {
-          console.log('📝 Updating existing assistant message');
-          lastMessage.content = content;
-        } else {
-          console.log('📝 Adding new assistant message');
-          newMessages.push({
-            role: 'assistant',
-            content: content,
-          });
-        }
-
-        return newMessages;
-      });
-
-      if (isComplete) {
-        console.log('✅ Response complete');
-        setIsStreaming(false);
-        setIsProcessing(false);
+      // Only stop audio if we're not playing a queued audio
+      if (audioQueueRef.current.length === 0) {
         await stopModalAudio();
       }
+    }
+  };
+
+  const handleChatUpdate = (data: any) => {
+    console.log('📥 Received chat update:', {
+      hasUserAudio: !!data.userAudioUrl,
+      hasAiAudio: !!data.aiAudioUrl,
     });
 
-    socketInstance.on('chat-update', (data: any) => {
-      console.log('📥 Received chat update:', {
-        hasUserAudio: !!data.userAudioUrl,
-        hasAiAudio: !!data.aiAudioUrl,
+    const {userAudioUrl, aiAudioUrl} = data;
+
+    setChatMessages(prev => {
+      const newMessages = [...prev];
+      const lastUserMessage = newMessages[newMessages.length - 2];
+      const lastAssistantMessage = newMessages[newMessages.length - 1];
+
+      if (lastUserMessage && lastUserMessage.role === 'user') {
+        console.log('🔊 Updating user message with audio URL');
+        lastUserMessage.audioUrl = userAudioUrl;
+      }
+
+      if (lastAssistantMessage && lastAssistantMessage.role === 'assistant') {
+        console.log('🔊 Updating assistant message with audio URL');
+        lastAssistantMessage.audioUrl = aiAudioUrl;
+      }
+
+      return newMessages;
+    });
+  };
+
+  const handleError = (error: any) => {
+    console.error('❌ Socket error:', {
+      message: error?.message,
+      details: error,
+    });
+    setIsProcessing(false);
+    setIsStreaming(false);
+    Alert.alert('Error', error?.message || 'An error occurred');
+  };
+
+  // Update socket connection effect to use the handlers
+  useEffect(() => {
+    if (!isOpen || !userEmail || !currentNews?._id) {
+      return;
+    }
+
+    let socketInstance: any = null;
+    let reconnectTimeout: NodeJS.Timeout;
+
+    const connectSocket = () => {
+      if (socketInstance?.connected) {
+        return;
+      }
+
+      setIsConnecting(true);
+      setSocketError(null);
+
+      console.log('Initializing socket connection...');
+      socketInstance = io('http://192.168.0.104:8080', {
+        transports: ['websocket'],
+        withCredentials: true,
+        reconnection: false,
       });
 
-      const {userAudioUrl, aiAudioUrl} = data;
+      socketRef.current = socketInstance;
 
-      setChatMessages(prev => {
-        const newMessages = [...prev];
-        const lastUserMessage = newMessages[newMessages.length - 2];
-        const lastAssistantMessage = newMessages[newMessages.length - 1];
+      // Connection event handlers
+      socketInstance.on('connect', () => {
+        console.log('✅ Socket connected successfully');
+        setIsConnected(true);
+        setIsConnecting(false);
+        reconnectAttemptsRef.current = 0;
 
-        if (lastUserMessage && lastUserMessage.role === 'user') {
-          console.log('🔊 Updating user message with audio URL');
-          lastUserMessage.audioUrl = userAudioUrl;
+        console.log('Joining chat room:', {
+          newsId: currentNews._id,
+          email: userEmail,
+        });
+        socketInstance.emit('join-chat', {
+          newsId: currentNews._id,
+          email: userEmail,
+        });
+      });
+
+      socketInstance.on('connect_error', (error: Error) => {
+        console.error('❌ Socket connection error:', error);
+        setSocketError('Failed to connect to chat server');
+        setIsConnecting(false);
+        setIsConnected(false);
+
+        // Implement exponential backoff for reconnection
+        if (reconnectAttemptsRef.current < MAX_RECONNECT_ATTEMPTS) {
+          const delay =
+            RECONNECT_DELAY * Math.pow(2, reconnectAttemptsRef.current);
+          reconnectTimeout = setTimeout(() => {
+            reconnectAttemptsRef.current += 1;
+            connectSocket();
+          }, delay);
+        } else {
+          Alert.alert(
+            'Connection Error',
+            'Unable to connect to chat server. Please try again later.',
+            [{text: 'OK', onPress: onClose}],
+          );
         }
-
-        if (lastAssistantMessage && lastAssistantMessage.role === 'assistant') {
-          console.log('🔊 Updating assistant message with audio URL');
-          lastAssistantMessage.audioUrl = aiAudioUrl;
-        }
-
-        return newMessages;
       });
-    });
 
-    socketInstance.on('error', (error: any) => {
-      console.error('❌ Socket error:', {
-        message: error?.message,
-        details: error,
+      // Attach event listeners using the handlers from component scope
+      socketInstance.on('ai-response', handleAiResponse);
+      socketInstance.on('chat-update', handleChatUpdate);
+      socketInstance.on('error', handleError);
+      socketInstance.on('disconnect', () => {
+        console.log('❌ Socket disconnected');
+        setIsConnected(false);
+        setIsStreaming(false);
       });
-      setIsProcessing(false);
-      setIsStreaming(false);
-      Alert.alert('Error', error?.message || 'An error occurred');
-    });
+    };
 
+    // Initial connection
+    connectSocket();
+
+    // Cleanup function
     return () => {
       console.log('Cleaning up socket connection...');
-      socketInstance.disconnect();
+
+      // Clear any pending reconnection
+      if (reconnectTimeout) {
+        clearTimeout(reconnectTimeout);
+      }
+
+      // Remove all event listeners
+      if (socketInstance) {
+        socketInstance.off('connect');
+        socketInstance.off('connect_error');
+        socketInstance.off('ai-response');
+        socketInstance.off('chat-update');
+        socketInstance.off('error');
+        socketInstance.off('disconnect');
+
+        // Only disconnect if we're still connected
+        if (socketInstance.connected) {
+          socketInstance.disconnect();
+        }
+      }
+
+      socketRef.current = null;
+      setIsConnected(false);
+      setIsConnecting(false);
+      setSocketError(null);
+      reconnectAttemptsRef.current = 0;
     };
-  }, [
-    isOpen,
-    userEmail,
-    currentNews?._id,
-    playStreamingAudio,
-    stopModalAudio,
-    isPlayerReady,
-  ]);
+  }, [isOpen, userEmail, currentNews?._id]);
 
   // Add TrackPlayer event listener for playback state changes
-  useTrackPlayerEvents([Event.PlaybackState], async event => {
-    if (event.state === State.Stopped || event.state === State.Ended) {
-      // Reset the playing audio ID when playback ends
-      setPlayingAudioId(null);
-    }
-  });
+  useTrackPlayerEvents(
+    [Event.PlaybackState, Event.PlaybackTrackChanged, Event.PlaybackError],
+    async event => {
+      if (event.type === Event.PlaybackState) {
+        if (event.state === State.Buffering) {
+          console.log('⏳ Audio buffering...');
+          setIsBuffering(true);
+        } else if (event.state === State.Playing) {
+          console.log('▶️ Audio playing');
+          setIsBuffering(false);
+        } else if (event.state === State.Paused) {
+          console.log('⏸️ Audio paused');
+          setIsBuffering(false);
+        } else if (
+          event.state === State.Stopped ||
+          event.state === State.Ended
+        ) {
+          console.log('⏹️ Audio stopped/ended');
+          setIsBuffering(false);
+          // Reset the playing audio ID when stopped
+          if (playingAudioId) {
+            setPlayingAudioId(null);
+          }
+        }
+      } else if (event.type === Event.PlaybackError) {
+        setIsBuffering(false);
+      }
+    },
+  );
 
   const handleSend = async () => {
     if (!chatInput.trim() || isStreaming || !currentNews || !userEmail) {
@@ -431,17 +784,121 @@ const ChatModal: React.FC<ChatModalProps> = ({
   };
 
   const startRecording = async () => {
+    // Stop any playing audio first
+    if (playingAudioId) {
+      console.log('🛑 Stopping current audio playback before recording');
+      await stopChatAudio();
+      setPlayingAudioId(null);
+      isPlayingRef.current = false;
+      audioQueueRef.current = [];
+    }
+
     const hasPermission = await requestAudioPermission();
     if (!hasPermission) {
       Alert.alert('Permission Required', 'Microphone permission is required!');
       return;
     }
 
-    if (!socketRef.current?.connected) {
-      Alert.alert('Error', 'Not connected to server');
-      return;
+    // Check socket connection and attempt to reconnect if needed
+    const socket = socketRef.current;
+    if (!socket?.connected) {
+      console.log('Socket not connected, attempting to connect...');
+      setIsConnecting(true);
+      setSocketError(null);
+
+      try {
+        // Create new socket instance if none exists
+        if (!socket) {
+          const newSocket = io('http://192.168.0.104:8080', {
+            transports: ['websocket'],
+            withCredentials: true,
+            reconnection: false,
+          });
+
+          // Set up event handlers
+          newSocket.on('connect', () => {
+            console.log('✅ Socket connected successfully');
+            setIsConnected(true);
+            setIsConnecting(false);
+            reconnectAttemptsRef.current = 0;
+
+            // Join chat room after connection
+            if (currentNews?._id && userEmail) {
+              console.log('Joining chat room:', {
+                newsId: currentNews._id,
+                email: userEmail,
+              });
+              newSocket.emit('join-chat', {
+                newsId: currentNews._id,
+                email: userEmail,
+              });
+            }
+
+            // Start recording after successful connection
+            startRecordingAfterConnection();
+          });
+
+          newSocket.on('connect_error', (error: Error) => {
+            console.error('❌ Socket connection error:', error);
+            setSocketError('Failed to connect to chat server');
+            setIsConnecting(false);
+            setIsConnected(false);
+            Alert.alert(
+              'Connection Error',
+              'Unable to connect to chat server. Please try again.',
+              [{text: 'OK'}],
+            );
+          });
+
+          // Set up other event handlers
+          newSocket.on('ai-response', handleAiResponse);
+          newSocket.on('chat-update', handleChatUpdate);
+          newSocket.on('error', handleError);
+          newSocket.on('disconnect', () => {
+            console.log('❌ Socket disconnected');
+            setIsConnected(false);
+            setIsStreaming(false);
+          });
+
+          socketRef.current = newSocket;
+        } else {
+          // If socket exists but disconnected, try to reconnect
+          socket.connect();
+        }
+
+        // Wait for connection with timeout
+        const connectionTimeout = setTimeout(() => {
+          if (!socketRef.current?.connected) {
+            setIsConnecting(false);
+            setSocketError('Connection timeout');
+            Alert.alert(
+              'Connection Error',
+              'Unable to connect to chat server. Please try again.',
+              [{text: 'OK'}],
+            );
+          }
+        }, 5000); // 5 second timeout
+
+        return; // Exit early, recording will start after connection
+      } catch (error) {
+        console.error('Error establishing socket connection:', error);
+        setIsConnecting(false);
+        setSocketError('Connection failed');
+        Alert.alert(
+          'Connection Error',
+          'Failed to connect to chat server. Please try again.',
+          [{text: 'OK'}],
+        );
+        return;
+      }
     }
 
+    // If we're already connected, start recording immediately
+    await startRecordingAfterConnection();
+  };
+
+  // Separate function to handle the actual recording start
+  const startRecordingAfterConnection = async () => {
     try {
       setIsRecording(true);
       // Configure audio recording with MP3 format
@@ -502,13 +959,14 @@ const ChatModal: React.FC<ChatModalProps> = ({
   };
 
   const sendAudioMessage = async (audioUri: string) => {
-    if (!currentNews?._id || !userEmail || !socketRef.current?.connected) {
+    const socket = socketRef.current;
+    if (!currentNews?._id || !userEmail || !socket?.connected) {
       console.log('❌ Cannot send audio message:', {
         hasNewsId: !!currentNews?._id,
         hasEmail: !!userEmail,
-        isConnected: socketRef.current?.connected,
+        isConnected: socket?.connected,
       });
-      Alert.alert('Error', 'Not connected to server');
+      Alert.alert('Error', 'Not connected to chat server');
       return;
     }
 
@@ -530,7 +988,7 @@ const ChatModal: React.FC<ChatModalProps> = ({
         const base64data = reader.result as string;
 
         // Send through WebSocket
-        socketRef.current.emit('audio-message', {
+        socket.emit('audio-message', {
           newsId: currentNews._id,
           email: userEmail,
           audioData: base64data,
@@ -553,27 +1011,464 @@ const ChatModal: React.FC<ChatModalProps> = ({
 
   // Update the toggleAudio function
   const toggleAudio = async (audioUrl: string, messageId: string) => {
-    if (!isPlayerReady) {
+    console.log('🎵 Toggle audio called:', {
+      messageId,
+      isPlayerReady: isPlayerReadyRef.current,
+      currentPlayingId: playingAudioId,
+      url: audioUrl.substring(0, 50) + '...',
+      isLocalFile: isLocalFileUrl(audioUrl),
+      isStreaming,
+      streamingMessageId,
+    });
+
+    if (!isPlayerReadyRef.current) {
       console.error('❌ Modal TrackPlayer not ready');
+      Alert.alert('Error', 'Audio player is not ready. Please try again.');
       return;
     }
 
     try {
+      // Find the message to get the current audio URL
+      const message = chatMessages.find(
+        msg => (msg._id || `msg-${chatMessages.indexOf(msg)}`) === messageId,
+      );
+
+      // If streaming is complete, use the hosted URL
+      const audioUrlToPlay =
+        !isStreaming && message?.completeAudioUrl
+          ? message.completeAudioUrl
+          : audioUrl;
+
+      console.log('🎵 Audio URL to play:', {
+        messageId,
+        isStreaming,
+        usingHostedUrl: !isStreaming && !!message?.completeAudioUrl,
+        url: audioUrlToPlay.substring(0, 50) + '...',
+      });
+
+      // If clicking the same audio that was playing
       if (playingAudioId === messageId) {
+        console.log('🛑 Same audio clicked, stopping playback');
         await stopChatAudio();
         setPlayingAudioId(null);
-      } else {
-        // Stop any currently playing audio
-        if (playingAudioId) {
-          await stopChatAudio();
+        isPlayingRef.current = false;
+
+        // If this was streaming, clear the queue and reset streaming state
+        if (isStreaming && streamingMessageId === messageId) {
+          console.log('�� Stopping streaming audio');
+          audioQueueRef.current = [];
+          setIsStreaming(false);
+          setStreamingMessageId(null);
         }
-        await playChatAudio(audioUrl);
-        setPlayingAudioId(messageId);
+        return;
       }
+
+      // Always stop current playback first if there is any
+      if (playingAudioId) {
+        console.log('🛑 Stopping current audio playback:', playingAudioId);
+        await stopChatAudio();
+        setPlayingAudioId(null);
+        isPlayingRef.current = false;
+      }
+
+      // For local files, verify existence before playing
+      if (isLocalFileUrl(audioUrlToPlay)) {
+        const filePath = audioUrlToPlay.replace('file://', '');
+        const exists = await fileExists(filePath);
+        if (!exists) {
+          // If file doesn't exist but it's an active file, it might be in the process of being created
+          if (activeAudioFilesRef.current.has(filePath)) {
+            console.log(
+              '⏳ Audio file is being prepared, please try again in a moment',
+            );
+            Alert.alert(
+              'Please Wait',
+              'Audio is being prepared. Please try again in a moment.',
+            );
+            return;
+          }
+          console.error('❌ Audio file not found:', filePath);
+          Alert.alert('Error', 'Audio file not found. Please try again.');
+          return;
+        }
+      }
+
+      // Clear current queue and add this audio
+      console.log('🎵 Starting new audio playback:', {
+        messageId,
+        usingHostedUrl: !isStreaming && !!message?.completeAudioUrl,
+        url: audioUrlToPlay.substring(0, 50) + '...',
+      });
+
+      audioQueueRef.current = [
+        {
+          url: audioUrlToPlay,
+          messageId,
+        },
+      ];
+
+      // If this was streaming, reset streaming state
+      if (isStreaming && streamingMessageId === messageId) {
+        console.log('🔄 Resetting streaming state for replay');
+        setIsStreaming(false);
+        setStreamingMessageId(null);
+      }
+
+      // Start playback
+      processAudioQueue();
     } catch (error) {
-      console.error('Error playing audio:', error);
+      console.error('❌ Error playing audio:', error);
       Alert.alert('Error', 'Failed to play audio. Please try again.');
     }
+  };
+
+  // Update the TrackPlayer initialization
+  useEffect(() => {
+    let isMounted = true;
+    let setupTimeout: NodeJS.Timeout;
+
+    const setupPlayer = async () => {
+      try {
+        console.log('🎵 Setting up chat TrackPlayer...');
+
+        // Configure TrackPlayer with valid options
+        await TrackPlayer.updateOptions({
+          android: {
+            appKilledPlaybackBehavior:
+              AppKilledPlaybackBehavior.StopPlaybackAndRemoveNotification,
+          },
+          capabilities: [Capability.Play, Capability.Pause, Capability.Stop],
+          compactCapabilities: [
+            Capability.Play,
+            Capability.Pause,
+            Capability.Stop,
+          ],
+        });
+
+        const success = await setupChatPlayer();
+        console.log('🎵 Chat TrackPlayer setup result:', success);
+
+        if (isMounted && success) {
+          setIsPlayerReady(true);
+          isPlayerReadyRef.current = true;
+          console.log('✅ Chat TrackPlayer initialized and ready');
+
+          // Pre-warm the player by adding a silent track
+          const silentTrack = {
+            url: 'data:audio/mp3;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU4Ljc2LjEwMAAAAAAAAAAAAAAA//tQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAASW5mbwAAAA8AAAASAAAeMwAUFBQUFCIiIiIiIjAwMDAwPz8/Pz8/TU1NTU1NW1tbW1tbaGhoaGhoaHd3d3d3d4aGhoaGhpSUlJSUlKGhoaGhoa+vr6+vr7+/v7+/v8rKysrKytTU1NTU1OPj4+Pj4/Ly8vLy8v///////////////////////////////////////////8AAAAATGF2YzU4LjEzAAAAAAAAAAAAAAAAJAYAAAAAAAAAHjOZTf9C//MUZAAAAAGkAAAAAAAAA0gAAAAATEFN//MUZAMAAAGkAAAAAAAAA0gAAAAARTEFN//MUZAYAAAGkAAAAAAAAA0gAAAAARTEFN//MUZAkAAAGkAAAAAAAAA0gAAAAARTEFN//MUZAkAAAGkAAAAAAAAA0gAAAAARTEFN//MUZAkAAAGkAAAAAAAAA0gAAAAARTEFN//MUZAkAAAGkAAAAAAAAA0gAAAAARTEFN',
+            title: 'Silent Track',
+            artist: 'System',
+            duration: 0.1,
+          };
+
+          await TrackPlayer.reset();
+          await TrackPlayer.add(silentTrack);
+          console.log('🎵 TrackPlayer pre-warmed');
+
+          // Process any queued audio
+          if (audioQueueRef.current.length > 0) {
+            console.log('🎵 Processing queued audio after initialization...');
+            processAudioQueue();
+          }
+        } else {
+          console.error('❌ Chat TrackPlayer setup failed');
+          if (isMounted) {
+            setIsPlayerReady(false);
+            isPlayerReadyRef.current = false;
+          }
+        }
+      } catch (error) {
+        console.error('❌ Error initializing chat TrackPlayer:', error);
+        if (isMounted) {
+          setIsPlayerReady(false);
+          isPlayerReadyRef.current = false;
+        }
+      }
+    };
+
+    // Pre-initialize the player when the modal opens
+    if (isOpen) {
+      console.log('🎵 Modal opened, setting up TrackPlayer...');
+      // Small delay to ensure UI is ready
+      setupTimeout = setTimeout(setupPlayer, 100);
+    }
+
+    // Cleanup when modal closes
+    return () => {
+      console.log('🎵 Modal closing, cleaning up TrackPlayer...');
+      isMounted = false;
+      if (setupTimeout) {
+        clearTimeout(setupTimeout);
+      }
+      if (isPlayerReady) {
+        cleanupChatPlayer();
+        setIsPlayerReady(false);
+        isPlayerReadyRef.current = false;
+        audioQueueRef.current = [];
+      }
+    };
+  }, [isOpen, processAudioQueue]);
+
+  // Add cleanup effect for when modal closes
+  useEffect(() => {
+    if (!isOpen) {
+      // Stop any playing audio when modal closes
+      const cleanup = async () => {
+        try {
+          isStreamingRef.current = false;
+          setIsStreaming(false);
+          console.log('🛑 Modal closing, stopping audio playback...');
+          await stopChatAudio();
+          setPlayingAudioId(null);
+          setStreamingMessageId(null);
+          isPlayingRef.current = false;
+          setIsBuffering(false);
+          audioQueueRef.current = [];
+
+          // Clear all cleanup timeouts
+          filesToCleanupRef.current.forEach(timeout => {
+            clearTimeout(timeout);
+          });
+          filesToCleanupRef.current.clear();
+
+          // Clean up all active files
+          activeAudioFilesRef.current.forEach(async filePath => {
+            await safeDeleteFile(filePath);
+          });
+          activeAudioFilesRef.current.clear();
+        } catch (error) {
+          console.error('❌ Error cleaning up audio on modal close:', error);
+        }
+      };
+
+      cleanup();
+    }
+  }, [isOpen]);
+
+  // Update the modal close handler
+  const handleModalClose = useCallback(async () => {
+    try {
+      // Stop any playing audio
+      await stopChatAudio();
+      setPlayingAudioId(null);
+      isPlayingRef.current = false;
+      setIsBuffering(false);
+      audioQueueRef.current = [];
+    } catch (error) {
+      console.log('❌ Error stopping audio on modal close:', error);
+    }
+    onClose();
+  }, [onClose]);
+
+  // Animation values for both states
+  const bufferAnim = useRef(new Animated.Value(0)).current;
+  const playAnim = useRef(new Animated.Value(0)).current;
+
+  // Effect for buffering animation (wavy dots)
+  useEffect(() => {
+    let animation: Animated.CompositeAnimation;
+
+    if (isBuffering) {
+      animation = Animated.loop(
+        Animated.sequence([
+          Animated.timing(bufferAnim, {
+            toValue: 1,
+            duration: 1000,
+            useNativeDriver: true,
+            easing: Easing.inOut(Easing.ease),
+          }),
+          Animated.timing(bufferAnim, {
+            toValue: 0,
+            duration: 1000,
+            useNativeDriver: true,
+            easing: Easing.inOut(Easing.ease),
+          }),
+        ]),
+      );
+      animation.start();
+    }
+
+    return () => {
+      if (animation) {
+        animation.stop();
+      }
+    };
+  }, [isBuffering]);
+
+  // Effect for playback animation (dynamic waves)
+  useEffect(() => {
+    let animation: Animated.CompositeAnimation;
+
+    if (playingAudioId && !isBuffering) {
+      animation = Animated.loop(
+        Animated.sequence([
+          Animated.timing(playAnim, {
+            toValue: 1,
+            duration: 1500,
+            useNativeDriver: true,
+            easing: Easing.inOut(Easing.ease),
+          }),
+          Animated.timing(playAnim, {
+            toValue: 0,
+            duration: 1500,
+            useNativeDriver: true,
+            easing: Easing.inOut(Easing.ease),
+          }),
+        ]),
+      );
+      animation.start();
+    }
+
+    return () => {
+      if (animation) {
+        animation.stop();
+      }
+    };
+  }, [playingAudioId, isBuffering]);
+
+  // Update the BufferingDots component with wavy animation
+  const BufferingDots = () => {
+    // Create separate animation values for each dot
+    const dot1Anim = useRef(new Animated.Value(0)).current;
+    const dot2Anim = useRef(new Animated.Value(0)).current;
+    const dot3Anim = useRef(new Animated.Value(0)).current;
+
+    useEffect(() => {
+      // Create wave-like animation sequence
+      const createWaveAnimation = (anim: Animated.Value, delay: number) => {
+        return Animated.loop(
+          Animated.sequence([
+            Animated.delay(delay),
+            Animated.timing(anim, {
+              toValue: 1,
+              duration: 600,
+              useNativeDriver: true,
+              easing: Easing.inOut(Easing.ease),
+            }),
+            Animated.timing(anim, {
+              toValue: 0,
+              duration: 600,
+              useNativeDriver: true,
+              easing: Easing.inOut(Easing.ease),
+            }),
+          ]),
+        );
+      };
+
+      // Start animations with different delays for wave effect
+      const anim1 = createWaveAnimation(dot1Anim, 0);
+      const anim2 = createWaveAnimation(dot2Anim, 200);
+      const anim3 = createWaveAnimation(dot3Anim, 400);
+
+      anim1.start();
+      anim2.start();
+      anim3.start();
+
+      return () => {
+        anim1.stop();
+        anim2.stop();
+        anim3.stop();
+      };
+    }, []);
+
+    const getDotStyle = (anim: Animated.Value) => ({
+      transform: [
+        {
+          translateY: anim.interpolate({
+            inputRange: [0, 0.5, 1],
+            outputRange: [0, -6, 0],
+          }),
+        },
+        {
+          scale: anim.interpolate({
+            inputRange: [0, 0.5, 1],
+            outputRange: [1, 1.2, 1],
+          }),
+        },
+      ],
+      opacity: anim.interpolate({
+        inputRange: [0, 0.5, 1],
+        outputRange: [0.4, 1, 0.4],
+      }),
+    });
+
+    return (
+      <View style={tw`flex-row items-center gap-1`}>
+        <Animated.View
+          style={[tw`w-1.5 h-1.5 rounded-full bg-white`, getDotStyle(dot1Anim)]}
+        />
+        <Animated.View
+          style={[tw`w-1.5 h-1.5 rounded-full bg-white`, getDotStyle(dot2Anim)]}
+        />
+        <Animated.View
+          style={[tw`w-1.5 h-1.5 rounded-full bg-white`, getDotStyle(dot3Anim)]}
+        />
+      </View>
+    );
+  };
+
+  // Helper component for playback waves
+  const PlaybackWaves = () => {
+    const waveStyle = (index: number) => ({
+      transform: [
+        {
+          scale: playAnim.interpolate({
+            inputRange: [0, 0.5, 1],
+            outputRange: [1, 1.2 + index * 0.1, 1],
+          }),
+        },
+      ],
+      opacity: playAnim.interpolate({
+        inputRange: [0, 0.5, 1],
+        outputRange: [0.3, 0.7 - index * 0.1, 0.3],
+      }),
+    });
+
+    return (
+      <View style={tw`flex-row items-center gap-0.5`}>
+        {[0, 1, 2].map(index => (
+          <Animated.View
+            key={index}
+            style={[tw`w-1 h-3 bg-white rounded-full`, waveStyle(index)]}
+          />
+        ))}
+      </View>
+    );
+  };
+
+  // Add this helper function before the return statement
+  const shouldShowAudioIndicator = (msg: ChatMessage, index: number) => {
+    if (isStreamingRef.current) {
+      console.log('WALLA HABIBI', index, chatMessages.length - 1);
+      if (index == chatMessages.length - 1) {
+        return {showWaves: true, isBuffering: false};
+      }
+    }
+    const messageId = msg._id || `msg-${index}`;
+    const isCurrentMessagePlaying = playingAudioId === messageId;
+    const isCurrentlyStreaming =
+      isStreaming && streamingMessageId === messageId;
+    const isLastAssistantMessage =
+      msg.role === 'assistant' && msg === chatMessages[chatMessages.length - 1];
+
+    // Add debug logging
+    console.log('Audio indicator state:', {
+      messageId,
+      isCurrentMessagePlaying,
+      isCurrentlyStreaming,
+      isLastAssistantMessage,
+      isStreaming,
+      streamingMessageId,
+      playingAudioId,
+      isBuffering,
+    });
+
+    return {
+      isBuffering:
+        isBuffering && (isCurrentMessagePlaying || isCurrentlyStreaming),
+      showWaves:
+        (isCurrentMessagePlaying || isCurrentlyStreaming) && !isBuffering,
+    };
   };
 
   return (
@@ -581,7 +1476,7 @@ const ChatModal: React.FC<ChatModalProps> = ({
       visible={isOpen}
       transparent
       animationType="slide"
-      onRequestClose={onClose}>
+      onRequestClose={handleModalClose}>
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={tw`flex-1`}>
@@ -601,7 +1496,7 @@ const ChatModal: React.FC<ChatModalProps> = ({
                 </Text>
               </View>
               <TouchableOpacity
-                onPress={onClose}
+                onPress={handleModalClose}
                 style={tw`p-2 rounded-lg bg-[#1C1829]`}>
                 <Icon name="times" size={20} color="#fff" />
               </TouchableOpacity>
@@ -658,85 +1553,96 @@ const ChatModal: React.FC<ChatModalProps> = ({
                   </Text>
                 </View>
               ) : (
-                chatMessages.map((msg, index) => (
-                  <View
-                    key={index}
-                    style={tw`flex-row ${
-                      msg.role === 'user' ? 'justify-end' : 'justify-start'
-                    } mb-4`}>
-                    {msg.role === 'user' ? (
-                      <LinearGradient
-                        colors={['#2563eb', '#4f46e5']}
-                        start={{x: 0, y: 0}}
-                        end={{x: 1, y: 0}}
-                        style={tw`rounded-2xl max-w-[80%] shadow-lg relative`}>
-                        <Text style={tw`text-white text-sm leading-6  p-3`}>
-                          {msg.content}
-                        </Text>
-                      </LinearGradient>
-                    ) : (
-                      <View
-                        style={tw`bg-[#342F43] rounded-2xl p-3 max-w-[80%] shadow-lg relative`}>
-                        <Text style={tw`text-white text-sm leading-6`}>
-                          {msg.content}
-                        </Text>
-                        {msg.audioUrl && (
-                          <TouchableOpacity
-                            onPress={() =>
-                              toggleAudio(
-                                msg.audioUrl!,
-                                msg._id || `msg-${index}`,
-                              )
-                            }
-                            style={tw``}>
-                            <LinearGradient
-                              colors={['#2563eb', '#4f46e5']}
-                              start={{x: 0, y: 0}}
-                              end={{x: 1, y: 0}}
-                              style={tw`rounded-full w-8 h-8 shadow-lg relative items-center justify-center`}>
-                              <View style={tw`items-center justify-center`}>
-                                <Icon
-                                  name={
+                chatMessages.map((msg, index) => {
+                  return (
+                    <View
+                      key={index}
+                      style={tw`flex-row ${
+                        msg.role === 'user' ? 'justify-end' : 'justify-start'
+                      } mb-4`}>
+                      {msg.role === 'user' ? (
+                        <LinearGradient
+                          colors={['#2563eb', '#4f46e5']}
+                          start={{x: 0, y: 0}}
+                          end={{x: 1, y: 0}}
+                          style={tw`rounded-2xl max-w-[80%] shadow-lg relative`}>
+                          <Text style={tw`text-white text-sm leading-6  p-3`}>
+                            {msg.content}
+                          </Text>
+                        </LinearGradient>
+                      ) : (
+                        <View
+                          style={tw`bg-[#342F43] rounded-2xl p-3 max-w-[80%] shadow-lg relative`}>
+                          <Text style={tw`text-white text-sm leading-6`}>
+                            {msg.content}
+                          </Text>
+                          {msg.audioUrl && (
+                            <>
+                              <TouchableOpacity
+                                onPress={() =>
+                                  toggleAudio(
+                                    msg.audioUrl!,
+                                    msg._id || `msg-${index}`,
+                                  )
+                                }
+                                style={tw``}>
+                                <LinearGradient
+                                  colors={['#2563eb', '#4f46e5']}
+                                  start={{x: 0, y: 0}}
+                                  end={{x: 1, y: 0}}
+                                  style={tw`rounded-full w-8 h-8 shadow-lg relative items-center justify-center`}>
+                                  <View style={tw`items-center justify-center`}>
+                                    {isBuffering &&
                                     playingAudioId ===
-                                    (msg._id || `msg-${index}`)
-                                      ? 'pause'
-                                      : 'play'
-                                  }
-                                  size={16}
-                                  color="#fff"
-                                />
-                              </View>
-                            </LinearGradient>
-                          </TouchableOpacity>
-                        )}
-                        {(playingAudioId === (msg._id || `msg-${index}`) ||
-                          (isStreaming &&
-                            index === chatMessages.length - 1)) && (
-                          <View
-                            style={tw`absolute -top-2 -right-2 flex-row items-center gap-1 bg-blue-600 px-2 py-1 rounded-full`}>
-                            <View style={tw`flex-row items-center gap-0.5`}>
-                              <View
-                                style={tw`w-1 h-2 bg-white rounded-full animate-pulse`}
-                              />
-                              <View
-                                style={tw`w-1 h-3 bg-white rounded-full animate-pulse`}
-                              />
-                              <View
-                                style={tw`w-1 h-4 bg-white rounded-full animate-pulse`}
-                              />
-                              <View
-                                style={tw`w-1 h-3 bg-white rounded-full animate-pulse`}
-                              />
-                              <View
-                                style={tw`w-1 h-2 bg-white rounded-full animate-pulse`}
-                              />
-                            </View>
-                          </View>
-                        )}
-                      </View>
-                    )}
-                  </View>
-                ))
+                                      (msg._id || `msg-${index}`) ? (
+                                      <Icon
+                                        name="spinner"
+                                        size={16}
+                                        color="#fff"
+                                      />
+                                    ) : (
+                                      <Icon
+                                        name={
+                                          playingAudioId ===
+                                          (msg._id || `msg-${index}`)
+                                            ? 'pause'
+                                            : 'play'
+                                        }
+                                        size={16}
+                                        color="#fff"
+                                      />
+                                    )}
+                                  </View>
+                                </LinearGradient>
+                              </TouchableOpacity>
+
+                              {(() => {
+                                const messageId = msg._id || `msg-${index}`;
+                                const isCurrentMessagePlaying =
+                                  playingAudioId === messageId;
+                                if (!isCurrentMessagePlaying) return null;
+
+                                const {isBuffering, showWaves} =
+                                  shouldShowAudioIndicator(msg, index);
+
+                                return (
+                                  <View
+                                    style={tw`absolute -top-2 -right-2 items-center justify-center bg-blue-600 px-2 py-1 rounded-full`}>
+                                    {isBuffering ? (
+                                      <BufferingDots />
+                                    ) : (
+                                      showWaves && <PlaybackWaves />
+                                    )}
+                                  </View>
+                                );
+                              })()}
+                            </>
+                          )}
+                        </View>
+                      )}
+                    </View>
+                  );
+                })
               )}
             </ScrollView>
 
@@ -828,6 +1734,21 @@ const ChatModal: React.FC<ChatModalProps> = ({
             </View>
           </View>
         </View>
+
+        {/* Connection status indicators */}
+        {isConnecting && (
+          <View
+            style={tw`absolute top-2 left-1/2 transform -translate-x-1/2 bg-blue-500/90 px-3 py-1 rounded-full`}>
+            <Text style={tw`text-white text-sm`}>Connecting...</Text>
+          </View>
+        )}
+
+        {socketError && (
+          <View
+            style={tw`absolute top-2 left-1/2 transform -translate-x-1/2 bg-red-500/90 px-3 py-1 rounded-full`}>
+            <Text style={tw`text-white text-sm`}>{socketError}</Text>
+          </View>
+        )}
       </KeyboardAvoidingView>
     </Modal>
   );

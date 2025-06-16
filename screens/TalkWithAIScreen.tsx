@@ -364,7 +364,7 @@ const TalkWithAIScreen: React.FC = () => {
         setRecording2Uri(uniquePath);
       }
     } catch (error) {
-      console.error('Error stopping recording:', error);
+      console.log('Error stopping recording:', error);
       setIsRecording(false);
       Alert.alert(
         'Recording Error',
