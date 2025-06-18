@@ -13,6 +13,7 @@ import {
   PermissionsAndroid,
   Animated,
   Easing,
+  PanResponder,
 } from 'react-native';
 import Icon from 'react-native-vector-icons/FontAwesome5';
 import LinearGradient from 'react-native-linear-gradient';
@@ -1263,6 +1264,66 @@ const ChatModal: React.FC<ChatModalProps> = ({
   // Animation values for both states
   const bufferAnim = useRef(new Animated.Value(0)).current;
   const playAnim = useRef(new Animated.Value(0)).current;
+  const translateY = useRef(new Animated.Value(0)).current;
+  const spinValue = useRef(new Animated.Value(0)).current;
+  const recordingAnim = useRef(new Animated.Value(0)).current;
+
+  // Spin interpolation for loading animation
+  const spin = spinValue.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['0deg', '360deg'],
+  });
+
+  // Recording animation interpolation
+  const recordingScale = recordingAnim.interpolate({
+    inputRange: [0, 0.5, 1],
+    outputRange: [1, 1.1, 1],
+  });
+
+  const recordingOpacity = recordingAnim.interpolate({
+    inputRange: [0, 0.5, 1],
+    outputRange: [1, 0.7, 1],
+  });
+
+  // PanResponder for drag to close
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: (_, gestureState) => {
+        return gestureState.dy > 10 && gestureState.vy > 0;
+      },
+      onPanResponderGrant: () => {
+        translateY.setOffset(0);
+        translateY.setValue(0);
+      },
+      onPanResponderMove: (_, gestureState) => {
+        if (gestureState.dy > 0) {
+          translateY.setValue(gestureState.dy);
+        }
+      },
+      onPanResponderRelease: (_, gestureState) => {
+        translateY.flattenOffset();
+        if (gestureState.dy > 100 || gestureState.vy > 0.5) {
+          // Close modal immediately when threshold is met
+          handleModalClose();
+          // Then animate for visual effect
+          Animated.timing(translateY, {
+            toValue: 1000,
+            duration: 200,
+            useNativeDriver: true,
+          }).start(() => {
+            translateY.setValue(0);
+          });
+        } else {
+          // Snap back
+          Animated.spring(translateY, {
+            toValue: 0,
+            useNativeDriver: true,
+          }).start();
+        }
+      },
+    }),
+  ).current;
 
   // Effect for buffering animation (wavy dots)
   useEffect(() => {
@@ -1325,6 +1386,55 @@ const ChatModal: React.FC<ChatModalProps> = ({
       }
     };
   }, [playingAudioId, isBuffering]);
+
+  // Effect for send button spin animation
+  useEffect(() => {
+    let animation: Animated.CompositeAnimation;
+
+    if (isStreaming) {
+      animation = Animated.loop(
+        Animated.timing(spinValue, {
+          toValue: 1,
+          duration: 1000,
+          useNativeDriver: true,
+        }),
+      );
+      animation.start();
+    } else {
+      spinValue.setValue(0);
+    }
+
+    return () => {
+      if (animation) {
+        animation.stop();
+      }
+    };
+  }, [isStreaming]);
+
+  // Effect for recording animation
+  useEffect(() => {
+    let animation: Animated.CompositeAnimation;
+
+    if (isRecording) {
+      animation = Animated.loop(
+        Animated.timing(recordingAnim, {
+          toValue: 1,
+          duration: 1000,
+          useNativeDriver: true,
+          easing: Easing.inOut(Easing.ease),
+        }),
+      );
+      animation.start();
+    } else {
+      recordingAnim.setValue(0);
+    }
+
+    return () => {
+      if (animation) {
+        animation.stop();
+      }
+    };
+  }, [isRecording]);
 
   // Update the BufferingDots component with wavy animation
   const BufferingDots = () => {
@@ -1481,11 +1591,17 @@ const ChatModal: React.FC<ChatModalProps> = ({
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={tw`flex-1`}>
         <View style={tw`flex-1 bg-black/60`}>
-          <View
-            style={tw`flex-1 mt-20 bg-[#040439] rounded-t-3xl overflow-hidden`}>
+          <Animated.View
+            style={[
+              tw`flex-1 mt-20 bg-[#040439] rounded-t-3xl overflow-hidden`,
+              {
+                transform: [{translateY}],
+              },
+            ]}>
             {/* Header */}
             <View
-              style={tw`flex-row items-center justify-between p-4 border-b border-[#2D283A] bg-[#0A0830]`}>
+              style={tw`flex-row items-center justify-between p-4 border-b border-[#2D283A] bg-[#0A0830]`}
+              {...panResponder.panHandlers}>
               <View style={tw`flex-row items-center gap-3`}>
                 <View
                   style={tw`bg-gradient-to-r from-blue-600 to-indigo-600 p-2 rounded-lg`}>
@@ -1694,8 +1810,14 @@ const ChatModal: React.FC<ChatModalProps> = ({
                           : 'bg-gradient-to-r from-[#4C4AE3] to-[#6366f1]'
                       } ${isProcessing ? 'opacity-50' : ''}`}>
                       {isRecording && (
-                        <View
-                          style={tw`absolute inset-1 rounded-lg border-2 border-blue-400 animate-pulse opacity-75`}
+                        <Animated.View
+                          style={[
+                            tw`absolute inset-1 rounded-lg border-2 border-blue-400 opacity-75`,
+                            {
+                              opacity: recordingOpacity,
+                              transform: [{scale: recordingScale}],
+                            },
+                          ]}
                         />
                       )}
                       <Icon
@@ -1720,7 +1842,9 @@ const ChatModal: React.FC<ChatModalProps> = ({
                           : ''
                       }`}>
                       {isStreaming ? (
-                        <Icon name="spinner" size={20} color="#fff" />
+                        <Animated.View style={{transform: [{rotate: spin}]}}>
+                          <Icon name="spinner" size={20} color="#fff" />
+                        </Animated.View>
                       ) : (
                         <Icon name="paper-plane" size={20} color="#fff" />
                       )}
@@ -1732,7 +1856,7 @@ const ChatModal: React.FC<ChatModalProps> = ({
                 </View>
               </View>
             </View>
-          </View>
+          </Animated.View>
         </View>
 
         {/* Connection status indicators */}
