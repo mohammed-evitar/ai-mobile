@@ -584,7 +584,7 @@ const ChatModal: React.FC<ChatModalProps> = ({
       setSocketError(null);
 
       console.log('Initializing socket connection...');
-      socketInstance = io('http://192.168.0.104:8080', {
+      socketInstance = io('http://192.168.0.114:8080', {
         transports: ['websocket'],
         withCredentials: true,
         reconnection: false,
@@ -809,7 +809,7 @@ const ChatModal: React.FC<ChatModalProps> = ({
       try {
         // Create new socket instance if none exists
         if (!socket) {
-          const newSocket = io('http://192.168.0.104:8080', {
+          const newSocket = io('http://192.168.0.114:8080', {
             transports: ['websocket'],
             withCredentials: true,
             reconnection: false,
@@ -1055,7 +1055,7 @@ const ChatModal: React.FC<ChatModalProps> = ({
 
         // If this was streaming, clear the queue and reset streaming state
         if (isStreaming && streamingMessageId === messageId) {
-          console.log('�� Stopping streaming audio');
+          console.log('🛑 Stopping streaming audio');
           audioQueueRef.current = [];
           setIsStreaming(false);
           setStreamingMessageId(null);

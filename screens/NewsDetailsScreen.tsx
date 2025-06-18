@@ -24,6 +24,7 @@ import {setupPlayer, buildQueue} from '../services/trackPlayerService';
 import {NewsItem} from '../types/news';
 import LinearGradient from 'react-native-linear-gradient';
 import ChatModal from '../components/ChatModal';
+import SocialShareModal from '../components/SocialShareModal';
 
 interface RouteParams {
   news: NewsItem[];
@@ -302,20 +303,18 @@ const NewsDetailsScreen = () => {
     setShowChatModal(true);
   };
 
-  // Add effect to handle chat modal state changes
+  // Add effect to handle chat modal state changes only
   useEffect(() => {
-    if (!showChatModal && isPlaying) {
-      // When chat modal closes and we were playing, restart the audio
+    if (!showChatModal && isPlaying && currentNews) {
+      // Only restart audio when chat modal closes, not share modal
       const restartAudio = async () => {
         try {
-          if (currentNews) {
-            const queue = buildQueue([currentNews], isVoxBuzzOn);
-            await TrackPlayer.reset();
-            await TrackPlayer.add(queue);
-            await TrackPlayer.play();
-            setIsPlaying(true);
-            isPlayingRef.current = true;
-          }
+          const queue = buildQueue([currentNews], isVoxBuzzOn);
+          await TrackPlayer.reset();
+          await TrackPlayer.add(queue);
+          await TrackPlayer.play();
+          setIsPlaying(true);
+          isPlayingRef.current = true;
         } catch (error) {
           console.error('Error restarting audio after chat modal:', error);
         }
@@ -552,49 +551,12 @@ const NewsDetailsScreen = () => {
         currentNews={currentNews}
       />
 
-      {/* Share Modal */}
-      <Modal
-        visible={showShareModal}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setShowShareModal(false)}>
-        <View style={tw`flex-1 bg-black/50 justify-end`}>
-          <View style={tw`bg-[#1a1a1a] rounded-t-xl p-4`}>
-            <View style={tw`flex-row justify-between items-center mb-4`}>
-              <Text style={tw`text-white text-lg font-bold`}>Share</Text>
-              <TouchableOpacity onPress={() => setShowShareModal(false)}>
-                <Icon name="times" size={24} color="#fff" />
-              </TouchableOpacity>
-            </View>
-
-            <View style={tw`flex-row justify-around mb-4`}>
-              <TouchableOpacity style={tw`items-center`}>
-                <View
-                  style={tw`bg-[#4C4AE3] w-12 h-12 rounded-full items-center justify-center mb-2`}>
-                  <Icon name="facebook" size={24} color="#fff" />
-                </View>
-                <Text style={tw`text-white text-xs`}>Facebook</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity style={tw`items-center`}>
-                <View
-                  style={tw`bg-[#4C4AE3] w-12 h-12 rounded-full items-center justify-center mb-2`}>
-                  <Icon name="twitter" size={24} color="#fff" />
-                </View>
-                <Text style={tw`text-white text-xs`}>Twitter</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity style={tw`items-center`}>
-                <View
-                  style={tw`bg-[#4C4AE3] w-12 h-12 rounded-full items-center justify-center mb-2`}>
-                  <Icon name="link" size={24} color="#fff" />
-                </View>
-                <Text style={tw`text-white text-xs`}>Copy Link</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
+      {/* Social Share Modal */}
+      <SocialShareModal
+        isOpen={showShareModal}
+        onClose={() => setShowShareModal(false)}
+        currentNews={currentNews}
+      />
     </SafeAreaView>
   );
 };
