@@ -96,6 +96,7 @@ const SkeletonCard = ({
 );
 
 const HomeScreen = ({user, subscriptionData}: HomeScreenProps) => {
+  console.log('Homescreen -user', user);
   const navigation = useNavigation<HomeScreenNavigationProp>();
   const [isVoxBuzzOn, setIsVoxBuzzOn] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -121,7 +122,9 @@ const HomeScreen = ({user, subscriptionData}: HomeScreenProps) => {
     if (typeof user.newsPreferences === 'object') {
       const categories = Object.keys(user.newsPreferences);
       return categories.filter(
-        category => user.newsPreferences[category] !== false,
+        category =>
+          user.newsPreferences[category] &&
+          user.newsPreferences[category]?.length,
       );
     }
 

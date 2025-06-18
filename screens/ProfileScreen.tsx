@@ -24,6 +24,7 @@ import SubscriptionModal from '../components/SubscriptionModal';
 type RootStackParamList = {
   Login: undefined;
   NewsPreference: {edit?: boolean};
+  ManualSelectionPage: {user: any; isEditMode?: boolean; fromProfile?: boolean};
   Terms: undefined;
 };
 
@@ -346,7 +347,11 @@ const ProfileScreen: React.FC<ProfileScreenProps> = ({subscriptionData}) => {
               </TouchableOpacity>
               <TouchableOpacity
                 onPress={() =>
-                  navigation.navigate('NewsPreference', {edit: true})
+                  navigation.navigate('ManualSelectionPage', {
+                    user: user,
+                    isEditMode: true,
+                    fromProfile: true,
+                  })
                 }
                 style={tw`flex-row items-center justify-between bg-[#242229] py-4 px-3 rounded-lg`}>
                 <View style={tw`flex-row items-center gap-2`}>

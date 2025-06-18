@@ -27,7 +27,7 @@ export type RootStackParamList = {
   Home: undefined;
   Login: undefined;
   NewsPreference: undefined;
-  ManualSelectionPage: {user: any};
+  ManualSelectionPage: {user: any; isEditMode?: boolean; fromProfile?: boolean};
   Profile: undefined;
   TalkWithAI: {firstName?: string; email?: string};
   NewsDetails: {news: any[]; newsId: string};

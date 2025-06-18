@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
-import React, {useState} from 'react';
+import React, {useState, useEffect} from 'react';
 import {
   View,
   Text,
@@ -26,7 +26,7 @@ type ManualSelectionNavigationProp = NativeStackNavigationProp<
 
 export default function ManualSelectionPage({route}: {route: any}) {
   const navigation = useNavigation<ManualSelectionNavigationProp>();
-  const {user, isEditMode = false} = route?.params || {};
+  const {user, isEditMode = false, fromProfile = false} = route?.params || {};
   const [selectedSubcategories, setSelectedSubcategories] = useState<{
     [key: string]: string[];
   }>({});
@@ -35,6 +35,13 @@ export default function ManualSelectionPage({route}: {route: any}) {
     string[]
   >([]);
   const [isLoading, setIsLoading] = useState(false);
+
+  // Initialize with user preferences if available
+  useEffect(() => {
+    if (user?.newsPreferences) {
+      setSelectedSubcategories(user.newsPreferences);
+    }
+  }, [user]);
 
   // Open modal and set temp subcategories
   const handleCategoryPress = (category: any) => {
@@ -82,21 +89,26 @@ export default function ManualSelectionPage({route}: {route: any}) {
         throw new Error('User not found');
       }
 
-      // Update user preferences
+      // Update user preferences via API
       const res = await apiService.put<{result: any}>('/user', {
         email: localUser.email,
-        ...localUser,
+        firstName: localUser.firstName,
+        lastName: localUser.lastName,
         newsPreferences: selectedSubcategories,
       });
 
-      // Update user in AsyncStorage
-      if (res?.result) {
-        await AsyncStorage.setItem('user', JSON.stringify(res.result));
-      }
+      // Update user in AsyncStorage with the merged user object
+      await AsyncStorage.setItem('user', JSON.stringify(res?.result));
+
+      console.log('User preferences updated successfully:', res?.result);
 
       // Navigate based on mode
       if (isEditMode) {
-        navigation.navigate('Profile');
+        if (fromProfile) {
+          navigation.navigate('Home');
+        } else {
+          navigation.navigate('Profile');
+        }
       } else {
         navigation.navigate('Home');
       }
@@ -117,10 +129,16 @@ export default function ManualSelectionPage({route}: {route: any}) {
       {/* Back Button */}
       <TouchableOpacity
         style={tw`mb-4 flex-row items-center mt-10`}
-        onPress={() => navigation.goBack()}>
+        onPress={() => {
+          if (fromProfile) {
+            navigation.navigate('Home');
+          } else {
+            navigation.goBack();
+          }
+        }}>
         <Text
           style={[tw`text-lg text-white`, {fontFamily: fonts.Thabit.regular}]}>
-          ← Back
+          {fromProfile ? '← Back to Home' : '← Back'}
         </Text>
       </TouchableOpacity>
       <View>
@@ -129,15 +147,16 @@ export default function ManualSelectionPage({route}: {route: any}) {
             tw`text-2xl mb-1 text-white`,
             {fontFamily: fonts.ThabitBold.regular, fontWeight: '600'},
           ]}>
-          Almost There!
+          {isEditMode ? 'Edit Your Preferences' : 'Almost There!'}
         </Text>
         <Text
           style={[
             tw`text-base text-white`,
             {fontFamily: fonts.Thabit.regular},
           ]}>
-          Choose at least two news categories that match your interests to get
-          started.
+          {isEditMode
+            ? 'Choose your preferred news categories and subcategories.'
+            : 'Choose at least two news categories that match your interests to get started.'}
         </Text>
         <View style={tw`flex-row flex-wrap gap-3 mt-5`}>
           {Object.keys(newsCategories).map((category, index) => {
@@ -218,9 +237,7 @@ export default function ManualSelectionPage({route}: {route: any}) {
                       <Text style={tw`text-white text-base`}>
                         {subcategory}
                       </Text>
-                      {tempSelectedSubcategories.includes(subcategory) && (
-                        <Text style={tw`text-white ml-1 text-base`}>×</Text>
-                      )}
+                      {tempSelectedSubcategories.includes(subcategory)}
                     </TouchableOpacity>
                   ),
                 )}
@@ -255,7 +272,13 @@ export default function ManualSelectionPage({route}: {route: any}) {
           <>
             <TouchableOpacity
               style={tw`bg-gray-700 px-8 py-2 rounded-3xl`}
-              onPress={() => navigation.goBack()}>
+              onPress={() => {
+                if (fromProfile) {
+                  navigation.navigate('Home');
+                } else {
+                  navigation.goBack();
+                }
+              }}>
               <Text style={tw`text-lg text-white`}>Cancel</Text>
             </TouchableOpacity>
             <TouchableOpacity
