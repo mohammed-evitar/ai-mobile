@@ -21,6 +21,7 @@ import withSubscriptionCheck from '../utils/withSubscriptionCheck';
 import moment from 'moment';
 import {imageMap} from '../utils/imageMap';
 import BottomAudioPlayer from '../components/BottomAudioPlayer';
+import SubscriptionModal from '../components/SubscriptionModal';
 
 type RootStackParamList = {
   Home: undefined;
@@ -106,6 +107,7 @@ const HomeScreen = ({user, subscriptionData}: HomeScreenProps) => {
   const [isLoadingRecentNews, setIsLoadingRecentNews] = useState(false);
   const [trendingNews, setTrendingNews] = useState<any[]>([]);
   const [isLoadingTrendingNews, setIsLoadingTrendingNews] = useState(false);
+  const [showSubscriptionModal, setShowSubscriptionModal] = useState(false);
 
   const recentCategoryCount = useRef<{[key: string]: number}>({});
   const trendingCategoryCount = useRef<{[key: string]: number}>({});
@@ -369,11 +371,19 @@ const HomeScreen = ({user, subscriptionData}: HomeScreenProps) => {
     };
 
     loadUserData();
-    if (flattenedPreferences.length > 0) {
+    if (
+      flattenedPreferences.length > 0 &&
+      !subscriptionData?.isSubscriptionExpired
+    ) {
       getRNews(flattenedPreferences);
       getTNews(flattenedPreferences);
     }
-  }, [flattenedPreferences, loadUserData, mapConvo]);
+  }, [
+    flattenedPreferences,
+    loadUserData,
+    mapConvo,
+    subscriptionData?.isSubscriptionExpired,
+  ]);
 
   // Add this before the trending topics section rendering
   const filteredTrendingNews = isVoxBuzzOn
@@ -405,7 +415,7 @@ const HomeScreen = ({user, subscriptionData}: HomeScreenProps) => {
               <TouchableOpacity
                 onPress={() => {
                   if (subscriptionData?.isSubscriptionExpired) {
-                    // Handle subscription modal
+                    setShowSubscriptionModal(true);
                   }
                 }}>
                 <LinearGradient
@@ -432,7 +442,7 @@ const HomeScreen = ({user, subscriptionData}: HomeScreenProps) => {
           {subscriptionData?.isSubscriptionExpired && (
             <TouchableOpacity
               onPress={() => {
-                // Handle subscription modal
+                setShowSubscriptionModal(true);
               }}>
               <LinearGradient
                 colors={['#4C4AE3', '#8887EE']}
@@ -516,7 +526,31 @@ const HomeScreen = ({user, subscriptionData}: HomeScreenProps) => {
           <Text style={tw`text-white text-base font-semibold ml-5 mt-2 mb-3`}>
             Recent News
           </Text>
-          {isLoadingRecentNews ? (
+          {subscriptionData?.isSubscriptionExpired ? (
+            <View style={tw`relative`}>
+              <FlatList
+                data={Array.from({length: 4}, (_, index) => ({index}))}
+                renderItem={() => <SkeletonCard variant="recent" />}
+                keyExtractor={(_, index) => index.toString()}
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={tw`pl-5 pr-5 gap-3`}
+              />
+              <View style={tw`absolute inset-0 justify-center items-center`}>
+                <TouchableOpacity
+                  activeOpacity={0.8}
+                  onPress={() => setShowSubscriptionModal(true)}
+                  style={tw`bg-black bg-opacity-50 rounded-lg px-4 py-2`}>
+                  <View style={tw`flex-row items-center gap-2`}>
+                    <Icon name="lock" size={16} color="#947EFB" />
+                    <Text style={tw`text-white text-xs font-semibold`}>
+                      Upgrade to unlock
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+              </View>
+            </View>
+          ) : isLoadingRecentNews ? (
             <FlatList
               data={Array.from({length: 5}, (_, index) => ({index}))}
               renderItem={() => <SkeletonCard variant="recent" />}
@@ -592,37 +626,61 @@ const HomeScreen = ({user, subscriptionData}: HomeScreenProps) => {
             <Text style={tw`text-white text-base font-semibold`}>
               Trending Topics ⚡
             </Text>
-            <TouchableOpacity
-              onPress={handlePlayAudio}
-              disabled={
-                isLoadingTrendingNews || filteredTrendingNews.length === 0
-              }
-              style={tw`opacity-${
-                isLoadingTrendingNews || filteredTrendingNews.length === 0
-                  ? '50'
-                  : '100'
-              }`}>
-              <LinearGradient
-                colors={['#4C4AE3', '#8887EE']}
-                start={{x: 0, y: 0}}
-                end={{x: 0, y: 1}}
-                style={tw`rounded-3xl `}>
-                <View
-                  style={tw`flex-row items-center gap-1 px-3.5 py-1 gap-1  `}>
-                  <Icon
-                    name={!isPlaying ? 'play' : 'pause'}
-                    size={12}
-                    color="#ffffff"
-                  />
-                  <Text style={tw`text-white text-xs font-semibold `}>
-                    {!isPlaying ? 'Play all' : 'Stop'}
-                  </Text>
-                </View>
-              </LinearGradient>
-            </TouchableOpacity>
+            {!subscriptionData?.isSubscriptionExpired && (
+              <TouchableOpacity
+                onPress={handlePlayAudio}
+                disabled={
+                  isLoadingTrendingNews || filteredTrendingNews.length === 0
+                }
+                style={tw`opacity-${
+                  isLoadingTrendingNews || filteredTrendingNews.length === 0
+                    ? '50'
+                    : '100'
+                }`}>
+                <LinearGradient
+                  colors={['#4C4AE3', '#8887EE']}
+                  start={{x: 0, y: 0}}
+                  end={{x: 0, y: 1}}
+                  style={tw`rounded-3xl `}>
+                  <View
+                    style={tw`flex-row items-center gap-1 px-3.5 py-1 gap-1  `}>
+                    <Icon
+                      name={!isPlaying ? 'play' : 'pause'}
+                      size={12}
+                      color="#ffffff"
+                    />
+                    <Text style={tw`text-white text-xs font-semibold `}>
+                      {!isPlaying ? 'Play all' : 'Stop'}
+                    </Text>
+                  </View>
+                </LinearGradient>
+              </TouchableOpacity>
+            )}
           </View>
           <View>
-            {isLoadingTrendingNews ? (
+            {subscriptionData?.isSubscriptionExpired ? (
+              <View style={tw`relative`}>
+                {Array.from({length: 4}, (_, index) => (
+                  <SkeletonCard key={index} variant="trending" />
+                ))}
+                <View style={tw`absolute self-center top-1/3`}>
+                  <TouchableOpacity
+                    activeOpacity={0.8}
+                    onPress={() => setShowSubscriptionModal(true)}
+                    style={tw`bg-black bg-opacity-60 rounded-full px-4 py-2 flex-row items-center`}>
+                    <Icon
+                      name="star"
+                      size={16}
+                      color="#fbbf24"
+                      style={tw`mr-2`}
+                    />
+                    <Text style={tw`text-white text-xs font-semibold`}>
+                      Premium content locked
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            ) : isLoadingTrendingNews ? (
               Array.from({length: 5}, (_, index) => (
                 <SkeletonCard key={index} variant="trending" />
               ))
@@ -666,6 +724,12 @@ const HomeScreen = ({user, subscriptionData}: HomeScreenProps) => {
           }}
         />
       )}
+
+      {/* Subscription Modal */}
+      <SubscriptionModal
+        visible={showSubscriptionModal}
+        onClose={() => setShowSubscriptionModal(false)}
+      />
     </View>
   );
 };

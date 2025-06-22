@@ -22,6 +22,7 @@ import LinearGradient from 'react-native-linear-gradient';
 import apiService from '../services/apiService';
 import BottomAudioPlayer from '../components/BottomAudioPlayer';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import SubscriptionModal from '../components/SubscriptionModal';
 
 type RootStackParamList = {
   Home: undefined;
@@ -48,6 +49,8 @@ const CategoryScreen = () => {
   const [showAudioPlayer, setShowAudioPlayer] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [trialDaysLeft, setTrialDaysLeft] = useState<number | null>(null);
+  const [showSubscriptionModal, setShowSubscriptionModal] = useState(false);
+  const [subscriptionData, setSubscriptionData] = useState<any>(null);
 
   const categoryCount = useRef<{[key: string]: number}>({});
   const imagesRef = useRef<{[key: string]: string}>({});
@@ -68,6 +71,24 @@ const CategoryScreen = () => {
       if (userData) {
         const parsedUser = JSON.parse(userData);
         setTrialDaysLeft(parsedUser.trialDaysLeft);
+
+        // Fetch subscription data
+        let subscriptionResponse: any = null;
+        try {
+          subscriptionResponse = await apiService.get('/user/details');
+          if (subscriptionResponse.success) {
+            setSubscriptionData(subscriptionResponse.result);
+          }
+        } catch (error) {
+          console.log('Error fetching subscription data:', error);
+        }
+
+        // Don't fetch news if subscription is expired
+        if (subscriptionResponse?.result?.isSubscriptionExpired) {
+          setNews([]);
+          setIsLoading(false);
+          return;
+        }
 
         const newsPreferences = parsedUser.newsPreferences[categoryName];
         const response: any = await apiService.post('user/category-news/', {
@@ -199,19 +220,47 @@ const CategoryScreen = () => {
           ]}>
           {categoryName}
         </Text>
-        {trialDaysLeft !== undefined && trialDaysLeft !== null && (
-          <TouchableOpacity>
+        {subscriptionData?.trialDaysLeft !== undefined &&
+          subscriptionData?.trialDaysLeft !== null && (
+            <TouchableOpacity
+              onPress={() => {
+                if (subscriptionData?.isSubscriptionExpired) {
+                  setShowSubscriptionModal(true);
+                }
+              }}>
+              <LinearGradient
+                colors={
+                  subscriptionData?.isSubscriptionExpired
+                    ? ['#ef4444', '#ec4899']
+                    : ['#4C4AE3', '#8887EE']
+                }
+                start={{x: 0, y: 0}}
+                end={{x: 1, y: 0}}
+                style={tw`rounded-xl`}>
+                <Text
+                  style={tw`text-white text-xs font-semibold px-4 py-1.5`}
+                  numberOfLines={1}
+                  adjustsFontSizeToFit>
+                  {subscriptionData?.isSubscriptionExpired
+                    ? '✨ Upgrade to Premium'
+                    : `${subscriptionData?.trialDaysLeft} days left in trial`}
+                </Text>
+              </LinearGradient>
+            </TouchableOpacity>
+          )}
+        {subscriptionData?.isSubscriptionExpired && (
+          <TouchableOpacity onPress={() => setShowSubscriptionModal(true)}>
             <LinearGradient
               colors={['#4C4AE3', '#8887EE']}
               start={{x: 0, y: 0}}
               end={{x: 1, y: 0}}
               style={tw`rounded-xl`}>
-              <Text
-                style={tw`text-white text-xs font-semibold px-4 py-1.5`}
-                numberOfLines={1}
-                adjustsFontSizeToFit>
-                {trialDaysLeft} days left in trial
-              </Text>
+              <View style={tw`flex-row items-center gap-2 px-4 py-1.5`}>
+                <Icon name="crown" size={12} color="#fbbf24" />
+                <Text style={tw`text-white text-xs font-semibold`}>
+                  Upgrade
+                </Text>
+              </View>
             </LinearGradient>
           </TouchableOpacity>
         )}
@@ -219,7 +268,7 @@ const CategoryScreen = () => {
 
       {/* Content */}
       <View style={tw`flex-1`}>
-        {!!news.length && (
+        {!!news.length && !subscriptionData?.isSubscriptionExpired && (
           <View style={tw`flex-row justify-end pr-5 mb-2`}>
             <TouchableOpacity
               onPress={handlePlayAudio}
@@ -278,6 +327,56 @@ const CategoryScreen = () => {
               </View>
             </View>
           ))
+        ) : subscriptionData?.isSubscriptionExpired ? (
+          // Expired subscription skeleton with upgrade overlay
+          <View style={tw`relative`}>
+            {Array.from({length: 4}, (_, index) => (
+              <View
+                key={index}
+                style={[
+                  tw`rounded-xl p-2.5 mx-5 my-1.5 h-18 flex-row items-center gap-2`,
+                  {backgroundColor: 'rgba(255, 255, 255, 0.1)'},
+                ]}>
+                <View
+                  style={[
+                    tw`w-12 h-13 rounded-md`,
+                    {backgroundColor: 'rgba(255, 255, 255, 0.2)'},
+                  ]}
+                />
+                <View style={tw`flex-1`}>
+                  <View
+                    style={[
+                      tw`h-3 rounded mb-1`,
+                      {
+                        backgroundColor: 'rgba(255, 255, 255, 0.2)',
+                        width: '80%',
+                      },
+                    ]}
+                  />
+                  <View
+                    style={[
+                      tw`h-3 rounded`,
+                      {
+                        backgroundColor: 'rgba(255, 255, 255, 0.1)',
+                        width: '60%',
+                      },
+                    ]}
+                  />
+                </View>
+              </View>
+            ))}
+            <View style={tw`absolute self-center top-1/3`}>
+              <TouchableOpacity
+                activeOpacity={0.8}
+                onPress={() => setShowSubscriptionModal(true)}
+                style={tw`bg-black bg-opacity-60 rounded-full px-4 py-2 flex-row items-center`}>
+                <Icon name="lock" size={16} color="#947EFB" style={tw`mr-2`} />
+                <Text style={tw`text-white text-xs font-semibold`}>
+                  Upgrade to unlock
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
         ) : (
           <FlatList
             data={news}
@@ -302,6 +401,12 @@ const CategoryScreen = () => {
           }}
         />
       )}
+
+      {/* Subscription Modal */}
+      <SubscriptionModal
+        visible={showSubscriptionModal}
+        onClose={() => setShowSubscriptionModal(false)}
+      />
     </SafeAreaView>
   );
 };

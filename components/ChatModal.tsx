@@ -38,6 +38,7 @@ import {
   PitchAlgorithm,
   AppKilledPlaybackBehavior,
 } from 'react-native-track-player';
+import SubscriptionModal from './SubscriptionModal';
 
 interface ChatModalProps {
   isOpen: boolean;
@@ -132,7 +133,8 @@ const ChatModal: React.FC<ChatModalProps> = ({
   const [playingAudioId, setPlayingAudioId] = useState<string | null>(null);
   const [isRecording, setIsRecording] = useState(false);
   const [isFreePlan, setIsFreePlan] = useState(false);
-  const [hasUsedFreeExchange, setHasUsedFreeExchange] = useState(false);
+  const [currentNewsId, setCurrentNewsId] = useState<string | null>(null);
+  const [showSubscriptionModal, setShowSubscriptionModal] = useState(false);
   const audioRecorderPlayer = useRef(new AudioRecorderPlayer()).current;
   const [_recordedAudioUri, setRecordedAudioUri] = useState<string>('');
   const [isProcessing, setIsProcessing] = useState(false);
@@ -174,8 +176,11 @@ const ChatModal: React.FC<ChatModalProps> = ({
         if (userData) {
           const user = JSON.parse(userData);
           setUserEmail(user.email);
-          setIsFreePlan(user.isFreePlan);
-          setHasUsedFreeExchange(user.hasUsedFreeExchange);
+          setIsFreePlan(
+            user.isFreePlan ||
+              !user.subscriptionStatus ||
+              user.subscriptionStatus !== 'active',
+          );
         }
       } catch (error) {
         console.error('Error getting user email:', error);
@@ -209,9 +214,15 @@ const ChatModal: React.FC<ChatModalProps> = ({
 
   useEffect(() => {
     if (isOpen && currentNews && userEmail) {
+      // Check if we're switching to a different news story
+      if (currentNewsId !== currentNews._id) {
+        // Clear previous chat messages when switching to a different news story
+        setChatMessages([]);
+        setCurrentNewsId(currentNews._id);
+      }
       loadChatHistory();
     }
-  }, [isOpen, currentNews, userEmail, loadChatHistory]);
+  }, [isOpen, currentNews, userEmail, loadChatHistory, currentNewsId]);
 
   useEffect(() => {
     if (scrollViewRef.current) {
@@ -585,7 +596,7 @@ const ChatModal: React.FC<ChatModalProps> = ({
       setSocketError(null);
 
       console.log('Initializing socket connection...');
-      socketInstance = io('http://192.168.0.114:8080', {
+      socketInstance = io('http://192.168.252.97:8080', {
         transports: ['websocket'],
         withCredentials: true,
         reconnection: false,
@@ -715,12 +726,8 @@ const ChatModal: React.FC<ChatModalProps> = ({
       return;
     }
 
-    if (isFreePlan && hasUsedFreeExchange) {
-      Alert.alert(
-        'Upgrade Required',
-        'Please upgrade to premium for unlimited exchanges.',
-        [{text: 'OK'}],
-      );
+    if (!canSendMessage()) {
+      setShowSubscriptionModal(true);
       return;
     }
 
@@ -728,6 +735,8 @@ const ChatModal: React.FC<ChatModalProps> = ({
       setIsStreaming(true);
       const newMessage: ChatMessage = {role: 'user', content: chatInput};
       setChatMessages(prev => [...prev, newMessage]);
+
+      // Clear the input field immediately after sending
       setChatInput('');
 
       setChatMessages(prev => [...prev, {role: 'assistant', content: ''}]);
@@ -785,6 +794,12 @@ const ChatModal: React.FC<ChatModalProps> = ({
   };
 
   const startRecording = async () => {
+    // Check if user can record based on premium status
+    if (!canRecordAudio()) {
+      setShowSubscriptionModal(true);
+      return;
+    }
+
     // Stop any playing audio first
     if (playingAudioId) {
       console.log('🛑 Stopping current audio playback before recording');
@@ -960,6 +975,12 @@ const ChatModal: React.FC<ChatModalProps> = ({
   };
 
   const sendAudioMessage = async (audioUri: string) => {
+    // Check if user can send audio based on premium status
+    if (!canRecordAudio()) {
+      setShowSubscriptionModal(true);
+      return;
+    }
+
     const socket = socketRef.current;
     if (!currentNews?._id || !userEmail || !socket?.connected) {
       console.log('❌ Cannot send audio message:', {
@@ -1581,6 +1602,25 @@ const ChatModal: React.FC<ChatModalProps> = ({
     };
   };
 
+  // Helper functions to check user permissions
+  const canSendMessage = () => {
+    if (!isFreePlan) return true; // Premium users can always send
+    // Count user messages from chat history
+    const userMessageCount = chatMessages.filter(
+      msg => msg.role === 'user',
+    ).length;
+    return userMessageCount < 1; // Free plan allows 1 exchange (1 user message)
+  };
+
+  const canRecordAudio = () => {
+    if (!isFreePlan) return true; // Premium users can always record
+    // Count user messages from chat history
+    const userMessageCount = chatMessages.filter(
+      msg => msg.role === 'user',
+    ).length;
+    return userMessageCount < 1; // Free plan allows 1 exchange (1 user message)
+  };
+
   return (
     <Modal
       visible={isOpen}
@@ -1613,8 +1653,9 @@ const ChatModal: React.FC<ChatModalProps> = ({
               </View>
               <TouchableOpacity
                 onPress={handleModalClose}
-                style={tw`p-2 rounded-lg bg-[#1C1829]`}>
-                <Icon name="times" size={20} color="#fff" />
+                style={tw`p-2 rounded-xl bg-[#2D283A] border border-[#FFFFFF15] shadow-sm`}
+                activeOpacity={0.7}>
+                <Icon name="times" size={16} color="#9CA3AF" />
               </TouchableOpacity>
             </View>
 
@@ -1665,7 +1706,11 @@ const ChatModal: React.FC<ChatModalProps> = ({
                     Ask questions about this news story
                   </Text>
                   <Text style={tw`text-gray-400 text-sm mt-2 text-center`}>
-                    Free plan: 1 exchange allowed
+                    {isFreePlan
+                      ? `Free plan: ${
+                          chatMessages.filter(msg => msg.role === 'user').length
+                        }/1 exchanges used`
+                      : 'Premium: Unlimited exchanges'}
                   </Text>
                 </View>
               ) : (
@@ -1764,27 +1809,29 @@ const ChatModal: React.FC<ChatModalProps> = ({
 
             {/* Input Area */}
             <View style={tw`p-4 pb-6 border-t border-[#2D283A] bg-[#0A0830]`}>
-              {isFreePlan && hasUsedFreeExchange && (
-                <View style={tw`flex-row items-center justify-between mb-3`}>
-                  <Text style={tw`text-gray-300 text-sm flex-1 mr-2`}>
-                    Upgrade to premium for unlimited exchanges and more
-                    features.
-                  </Text>
-                  <TouchableOpacity
-                    onPress={() => {
-                      Alert.alert(
-                        'Upgrade Required',
-                        'Please upgrade to premium for unlimited exchanges.',
-                        [{text: 'OK'}],
-                      );
-                    }}
-                    style={tw`bg-gradient-to-r from-[#4C4AE3] to-[#6366f1] px-3 py-1 rounded-lg`}>
-                    <Text style={tw`text-white text-sm font-medium`}>
-                      Upgrade
+              {isFreePlan &&
+                chatMessages.filter(msg => msg.role === 'user').length >= 1 && (
+                  <View style={tw`flex-row items-center justify-between mb-3`}>
+                    <Text style={tw`text-gray-300 text-sm flex-1 mr-2`}>
+                      Upgrade to premium for unlimited exchanges and more
+                      features.
                     </Text>
-                  </TouchableOpacity>
-                </View>
-              )}
+                    <TouchableOpacity
+                      onPress={() => setShowSubscriptionModal(true)}
+                      style={tw`rounded-lg overflow-hidden`}>
+                      <LinearGradient
+                        colors={['#4C4AE3', '#6366f1']}
+                        start={{x: 0, y: 0}}
+                        end={{x: 1, y: 0}}
+                        style={tw`rounded-lg`}>
+                        <Text
+                          style={tw`text-white text-sm font-medium  px-3 py-1`}>
+                          Upgrade
+                        </Text>
+                      </LinearGradient>
+                    </TouchableOpacity>
+                  </View>
+                )}
               <View
                 style={tw`flex-row items-center gap-2 bg-[#1C1829] rounded-xl p-3 border border-[#2D283A] shadow-lg`}>
                 <TextInput
@@ -1797,18 +1844,20 @@ const ChatModal: React.FC<ChatModalProps> = ({
                   maxLength={500}
                   selectionColor="#6366f1"
                   cursorColor="#6366f1"
-                  editable={!isStreaming && !isProcessing}
+                  editable={!isStreaming && !isProcessing && canSendMessage()}
                 />
                 <View style={tw`flex-row items-center gap-2`}>
                   <View style={tw`items-center`}>
                     <TouchableOpacity
                       onPress={isRecording ? stopRecording : startRecording}
-                      disabled={isProcessing}
+                      disabled={isProcessing || !canRecordAudio()}
                       style={tw`p-2 rounded-lg ${
                         isRecording
                           ? 'bg-gradient-to-r from-[#4C4AE3] to-[#6366f1]'
                           : 'bg-gradient-to-r from-[#4C4AE3] to-[#6366f1]'
-                      } ${isProcessing ? 'opacity-50' : ''}`}>
+                      } ${
+                        isProcessing || !canRecordAudio() ? 'opacity-50' : ''
+                      }`}>
                       {isRecording && (
                         <Animated.View
                           style={[
@@ -1834,10 +1883,16 @@ const ChatModal: React.FC<ChatModalProps> = ({
                     <TouchableOpacity
                       onPress={handleSend}
                       disabled={
-                        isStreaming || !chatInput.trim() || isProcessing
+                        isStreaming ||
+                        !chatInput.trim() ||
+                        isProcessing ||
+                        !canSendMessage()
                       }
                       style={tw`p-2 rounded-lg bg-gradient-to-r from-[#4C4AE3] to-[#6366f1] ${
-                        isStreaming || !chatInput.trim() || isProcessing
+                        isStreaming ||
+                        !chatInput.trim() ||
+                        isProcessing ||
+                        !canSendMessage()
                           ? 'opacity-50'
                           : ''
                       }`}>
@@ -1872,6 +1927,14 @@ const ChatModal: React.FC<ChatModalProps> = ({
             style={tw`absolute top-2 left-1/2 transform -translate-x-1/2 bg-red-500/90 px-3 py-1 rounded-full`}>
             <Text style={tw`text-white text-sm`}>{socketError}</Text>
           </View>
+        )}
+
+        {/* Subscription Modal */}
+        {showSubscriptionModal && (
+          <SubscriptionModal
+            visible={showSubscriptionModal}
+            onClose={() => setShowSubscriptionModal(false)}
+          />
         )}
       </KeyboardAvoidingView>
     </Modal>
