@@ -450,7 +450,13 @@ const HomeScreen = ({user, subscriptionData}: HomeScreenProps) => {
                 end={{x: 1, y: 0}}
                 style={tw`rounded-xl`}>
                 <View style={tw`flex-row items-center gap-2 px-4 py-1.5`}>
-                  <Icon name="crown" size={12} color="#fbbf24" />
+                  <LinearGradient
+                    colors={['#1e3a8a', '#6366f1']}
+                    start={{x: 0, y: 0}}
+                    end={{x: 1, y: 0}}
+                    style={tw`rounded-full p-1`}>
+                    <Icon name="crown" size={10} color="#fff" />
+                  </LinearGradient>
                   <Text style={tw`text-white text-xs font-semibold`}>
                     Upgrade
                   </Text>
@@ -466,13 +472,21 @@ const HomeScreen = ({user, subscriptionData}: HomeScreenProps) => {
                     ? {uri: user.picture}
                     : require('../assets/justmodel.png')
                 }
-                style={tw`w-10 h-10 rounded-full`}
+                style={tw`w-10 h-10 rounded-full border-2 border-[#4C4AE3]`}
               />
               {subscriptionData?.subscriptionStatus === 'active' &&
                 subscriptionData?.trialDaysLeft === null && (
-                  <View
-                    style={tw`absolute -top-1 -right-1 bg-gradient-to-b from-[#4C4AE3] to-[#8887EE] rounded-full p-1`}>
-                    <Icon name="crown" size={8} color="#fff" />
+                  <View style={tw`absolute -top-1 -right-1`}>
+                    <LinearGradient
+                      colors={['#1e3a8a', '#6366f1']}
+                      start={{x: 0, y: 0}}
+                      end={{x: 1, y: 0}}
+                      style={tw`rounded-full`}>
+                      <View
+                        style={tw`items-center w-6 h-6 rounded-full justify-center`}>
+                        <Icon name="crown" size={10} color="#fff" />
+                      </View>
+                    </LinearGradient>
                   </View>
                 )}
             </View>

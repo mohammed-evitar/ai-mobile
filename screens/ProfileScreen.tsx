@@ -145,13 +145,21 @@ const ProfileScreen: React.FC<ProfileScreenProps> = ({subscriptionData}) => {
                         ? {uri: user.picture}
                         : require('../assets/justmodel.png')
                     }
-                    style={tw`w-30 h-30 rounded-full border-2 border-gray-500`}
+                    style={tw`w-30 h-30 rounded-full border-2 border-[#4C4AE3]`}
                   />
                   {subscriptionData?.subscriptionStatus === 'active' &&
                     subscriptionData?.trialDaysLeft === null && (
-                      <View
-                        style={tw`absolute top-1 right-1 bg-gradient-to-b from-[#4C4AE3] to-[#8887EE] rounded-full p-2`}>
-                        <Icon name="crown" size={12} color="#fff" />
+                      <View style={tw`absolute top-1 right-1`}>
+                        <LinearGradient
+                          colors={['#1e3a8a', '#6366f1']}
+                          start={{x: 0, y: 0}}
+                          end={{x: 1, y: 0}}
+                          style={tw`rounded-full`}>
+                          <View
+                            style={tw`items-center justify-center p-2 w-8 h-8 rounded-full`}>
+                            <Icon name="crown" size={12} color="#fff" />
+                          </View>
+                        </LinearGradient>
                       </View>
                     )}
                 </View>
