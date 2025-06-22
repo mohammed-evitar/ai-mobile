@@ -964,7 +964,7 @@ const ChatModal: React.FC<ChatModalProps> = ({
       // Send the audio file
       await sendAudioMessage(result);
     } catch (error) {
-      console.error('Error stopping recording:', error);
+      console.log('Error stopping recording:', error);
       setIsRecording(false);
       Alert.alert(
         'Recording Error',

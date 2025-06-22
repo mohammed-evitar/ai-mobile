@@ -56,7 +56,7 @@ export const stopChatAudio = async () => {
     await TrackPlayer.stop();
     await TrackPlayer.reset();
   } catch (error) {
-    console.error('Error stopping chat audio:', error);
+    console.log('Error stopping chat audio:', error);
   }
 };
 

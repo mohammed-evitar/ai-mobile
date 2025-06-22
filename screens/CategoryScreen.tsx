@@ -207,7 +207,7 @@ const CategoryScreen = () => {
   return (
     <SafeAreaView style={tw`flex-1 bg-[#0A0710]`}>
       {/* Header */}
-      <View style={tw`flex-row items-center px-5 py-4 w-full pr-7 gap-9`}>
+      <View style={tw`flex-row items-center px-5 py-4 w-full pr-7 gap-4`}>
         <TouchableOpacity
           onPress={() => navigation.goBack()}
           style={tw`bg-[#1a1a1a] rounded-lg p-2`}>
@@ -215,39 +215,12 @@ const CategoryScreen = () => {
         </TouchableOpacity>
         <Text
           style={[
-            tw`text-white text-[20px] tracking-wider flex-1`,
+            tw`text-white text-[20px] tracking-wide flex`,
             {fontFamily: fonts.ThabitBold.regular},
           ]}>
           {categoryName}
         </Text>
-        {subscriptionData?.trialDaysLeft !== undefined &&
-          subscriptionData?.trialDaysLeft !== null && (
-            <TouchableOpacity
-              onPress={() => {
-                if (subscriptionData?.isSubscriptionExpired) {
-                  setShowSubscriptionModal(true);
-                }
-              }}>
-              <LinearGradient
-                colors={
-                  subscriptionData?.isSubscriptionExpired
-                    ? ['#ef4444', '#ec4899']
-                    : ['#4C4AE3', '#8887EE']
-                }
-                start={{x: 0, y: 0}}
-                end={{x: 1, y: 0}}
-                style={tw`rounded-xl`}>
-                <Text
-                  style={tw`text-white text-xs font-semibold px-4 py-1.5`}
-                  numberOfLines={1}
-                  adjustsFontSizeToFit>
-                  {subscriptionData?.isSubscriptionExpired
-                    ? '✨ Upgrade to Premium'
-                    : `${subscriptionData?.trialDaysLeft} days left in trial`}
-                </Text>
-              </LinearGradient>
-            </TouchableOpacity>
-          )}
+
         {subscriptionData?.isSubscriptionExpired && (
           <TouchableOpacity onPress={() => setShowSubscriptionModal(true)}>
             <LinearGradient
