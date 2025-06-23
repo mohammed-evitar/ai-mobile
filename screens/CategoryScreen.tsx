@@ -215,7 +215,7 @@ const CategoryScreen = () => {
         </TouchableOpacity>
         <Text
           style={[
-            tw`text-white text-[20px] tracking-wide flex`,
+            tw`text-white text-xl tracking-wide flex-1 `,
             {fontFamily: fonts.ThabitBold.regular},
           ]}>
           {categoryName}

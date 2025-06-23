@@ -65,6 +65,16 @@ interface ChatHistoryResponse {
   __v: number;
 }
 
+interface SubscriptionResponse {
+  success: boolean;
+  result: {
+    user: any;
+    trialDaysLeft: number;
+    subscriptionStatus: 'trial' | 'active' | 'expired';
+    isSubscriptionExpired: boolean;
+  };
+}
+
 // Add a queue type for better type safety
 interface AudioQueueItem {
   url: string;
@@ -176,11 +186,27 @@ const ChatModal: React.FC<ChatModalProps> = ({
         if (userData) {
           const user = JSON.parse(userData);
           setUserEmail(user.email);
-          setIsFreePlan(
-            user.isFreePlan ||
-              !user.subscriptionStatus ||
-              user.subscriptionStatus !== 'active',
-          );
+
+          // Fetch subscription data from API to get accurate status
+          try {
+            const subscriptionResponse =
+              await apiService.get<SubscriptionResponse>('/user/details');
+            if (subscriptionResponse?.success) {
+              const subscriptionData = subscriptionResponse.result;
+              // User is on free plan if subscription is not active
+              setIsFreePlan(
+                !subscriptionData.subscriptionStatus ||
+                  subscriptionData.subscriptionStatus !== 'active',
+              );
+            } else {
+              // If API call fails, default to free plan
+              setIsFreePlan(true);
+            }
+          } catch (error) {
+            console.error('Error fetching subscription data:', error);
+            // If API call fails, default to free plan
+            setIsFreePlan(true);
+          }
         }
       } catch (error) {
         console.error('Error getting user email:', error);
@@ -596,7 +622,7 @@ const ChatModal: React.FC<ChatModalProps> = ({
       setSocketError(null);
 
       console.log('Initializing socket connection...');
-      socketInstance = io('http://192.168.252.97:8080', {
+      socketInstance = io('http://192.168.43.144:8080', {
         transports: ['websocket'],
         withCredentials: true,
         reconnection: false,
@@ -731,20 +757,19 @@ const ChatModal: React.FC<ChatModalProps> = ({
       return;
     }
 
+    const messageToSend = chatInput.trim();
+
     try {
       setIsStreaming(true);
-      const newMessage: ChatMessage = {role: 'user', content: chatInput};
+      const newMessage: ChatMessage = {role: 'user', content: messageToSend};
       setChatMessages(prev => [...prev, newMessage]);
-
-      // Clear the input field immediately after sending
-      setChatInput('');
 
       setChatMessages(prev => [...prev, {role: 'assistant', content: ''}]);
 
       await apiService.stream(
         `/chat/${currentNews._id}/message`,
         {
-          message: chatInput,
+          message: messageToSend,
           newsId: currentNews._id,
           email: userEmail,
         },
@@ -772,6 +797,8 @@ const ChatModal: React.FC<ChatModalProps> = ({
         return [...newMessages];
       });
     } finally {
+      // Always clear the input field after sending
+      setChatInput('');
       setIsStreaming(false);
     }
   };

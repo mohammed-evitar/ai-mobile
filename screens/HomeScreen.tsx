@@ -450,13 +450,7 @@ const HomeScreen = ({user, subscriptionData}: HomeScreenProps) => {
                 end={{x: 1, y: 0}}
                 style={tw`rounded-xl`}>
                 <View style={tw`flex-row items-center gap-2 px-4 py-1.5`}>
-                  <LinearGradient
-                    colors={['#1e3a8a', '#6366f1']}
-                    start={{x: 0, y: 0}}
-                    end={{x: 1, y: 0}}
-                    style={tw`rounded-full p-1`}>
-                    <Icon name="crown" size={10} color="#fff" />
-                  </LinearGradient>
+                  <Icon name="crown" size={10} color="#fbbf24" />
                   <Text style={tw`text-white text-xs font-semibold`}>
                     Upgrade
                   </Text>
